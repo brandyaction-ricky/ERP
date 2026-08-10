@@ -1,6 +1,14 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import {
+  BankAccount,
+  BankAccountManagement,
+  CardManagement,
+  CardUsage,
+  CardUsageManagement,
+  CompanyCard,
+} from "./components/financial-management";
 
 type Employee = {
   id: number;
@@ -65,11 +73,11 @@ type Expense = {
   createdAt: string;
 };
 
-type ERPData = { employees: Employee[]; entries: LeaveEntry[]; contracts: Contract[]; expenses: Expense[]; schemaReady?: boolean };
-type Section = "dashboard" | "employees" | "leave" | "expenses";
+type ERPData = { employees: Employee[]; entries: LeaveEntry[]; contracts: Contract[]; expenses: Expense[]; cards: CompanyCard[]; bankAccounts: BankAccount[]; cardUsages: CardUsage[]; schemaReady?: boolean };
+type Section = "dashboard" | "employees" | "leave" | "expenses" | "cards" | "accounts" | "evidence";
 type EmployeeTab = "info" | "contract" | "leave";
 
-const EMPTY_DATA: ERPData = { employees: [], entries: [], contracts: [], expenses: [], schemaReady: true };
+const EMPTY_DATA: ERPData = { employees: [], entries: [], contracts: [], expenses: [], cards: [], bankAccounts: [], cardUsages: [], schemaReady: true };
 const DEPARTMENTS = ["콘텐츠팀", "마케팅팀", "디자인팀", "개발팀", "경영지원"];
 const EXPENSE_CATEGORIES: Record<Expense["costType"], string[]> = {
   fixed: ["인건비", "임대료·관리비", "보험료", "소프트웨어·구독료", "통신비", "세금·공과금", "기타 고정비"],
@@ -278,7 +286,7 @@ export default function Home() {
     }
   }
 
-  async function remove(kind: "employee" | "entry" | "contract" | "expense", id: number) {
+  async function remove(kind: "employee" | "entry" | "contract" | "expense" | "card" | "bankAccount" | "cardUsage", id: number) {
     const message = kind === "employee" ? "직원과 연결된 계약·연차 기록을 모두 삭제할까요?" : "선택한 기록을 삭제할까요?";
     if (!window.confirm(message)) return;
     setSaving(true);
@@ -365,6 +373,9 @@ export default function Home() {
     employees: ["직원 관리", "기본 정보부터 근로계약까지 직원별로 관리합니다."],
     leave: ["연차 관리", "직원별 발생·사용·잔여 연차를 확인합니다."],
     expenses: ["회사 비용", "매월 발생한 회사 비용을 직접 입력하고 집계합니다."],
+    cards: ["카드 관리", "법인카드 정보와 한도·담당자를 관리합니다."],
+    accounts: ["통장 관리", "회사 통장과 잔액·운영 목적을 관리합니다."],
+    evidence: ["카드 사용·증빙", "카드 사용 내역과 증빙 제출 상태를 관리합니다."],
   }[section];
 
   return (
@@ -374,9 +385,9 @@ export default function Home() {
           <span className="brand-mark">B</span><span>BRANDYACTION <b>ERP</b></span>
         </button>
         <nav className="desktop-nav" aria-label="관리 메뉴">
-          {(["dashboard", "employees", "leave", "expenses"] as Section[]).map((item) => (
+          {(["dashboard", "employees", "leave", "expenses", "cards", "accounts", "evidence"] as Section[]).map((item) => (
             <button key={item} className={section === item ? "active" : ""} onClick={() => { setSection(item); if (item !== "employees") setSelectedEmployeeId(null); }}>
-              {{ dashboard: "대시보드", employees: "직원 관리", leave: "연차 관리", expenses: "회사 비용" }[item]}
+              {{ dashboard: "대시보드", employees: "직원 관리", leave: "연차 관리", expenses: "회사 비용", cards: "카드 관리", accounts: "통장 관리", evidence: "카드 사용·증빙" }[item]}
             </button>
           ))}
         </nav>
@@ -402,7 +413,7 @@ export default function Home() {
         </section>
 
         {error && <div className="error-banner"><span>!</span><p>{error}</p><button onClick={() => setError("")}>닫기</button></div>}
-        {data.schemaReady === false && <div className="error-banner"><span>!</span><p>직원 계약·회사 비용 데이터베이스 업데이트가 아직 적용되지 않았습니다. 기존 연차 정보는 정상적으로 조회할 수 있습니다.</p></div>}
+        {data.schemaReady === false && <div className="error-banner"><span>!</span><p>ERP 운영 데이터베이스 업데이트가 아직 적용되지 않았습니다. 기존 연차 정보는 정상적으로 조회할 수 있습니다.</p></div>}
 
         {loading ? <div className="workspace loading-block">ERP 데이터를 불러오고 있습니다.</div> : (
           <>
@@ -458,11 +469,23 @@ export default function Home() {
             {section === "expenses" && (
               <ExpenseManagement expenses={monthExpenses} recurringExpenses={data.expenses.filter((expense) => expense.isRecurring && expense.recurringActive)} month={expenseMonth} monthlyTotal={monthlyExpenseTotal} annualTotal={annualExpenseTotal} onMonth={setExpenseMonth} onEdit={openExpense} onDelete={(id) => remove("expense", id)} />
             )}
+
+            {section === "cards" && (
+              <CardManagement cards={data.cards} employees={data.employees} saving={saving} onSave={save} onDelete={(id) => remove("card", id)} />
+            )}
+
+            {section === "accounts" && (
+              <BankAccountManagement accounts={data.bankAccounts} employees={data.employees} saving={saving} onSave={save} onDelete={(id) => remove("bankAccount", id)} />
+            )}
+
+            {section === "evidence" && (
+              <CardUsageManagement usages={data.cardUsages} cards={data.cards} employees={data.employees} saving={saving} onSave={save} onDelete={(id) => remove("cardUsage", id)} />
+            )}
           </>
         )}
       </main>
 
-      <footer><span>BRANDYACTION ERP</span><p>직원 정보와 회사 비용은 승인된 관리자만 열람할 수 있습니다.</p></footer>
+      <footer><span>BRANDYACTION ERP</span><p>직원 정보와 회사 자산은 승인된 관리자만 열람할 수 있습니다.</p></footer>
 
       {employeeModal && (
         <Modal title={employeeForm.id ? "직원 정보 수정" : "새 직원 등록"} description="운영에 필요한 기본 인사 정보를 입력합니다." onClose={() => setEmployeeModal(false)}>
