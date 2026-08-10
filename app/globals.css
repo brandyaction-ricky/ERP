@@ -114,6 +114,11 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .remaining.low { background: #fff0e9; color: #ba5739; }
 .money-cell { color: var(--brand-deep) !important; font-weight: 900; text-align: right; white-space: nowrap; }
 .expense-table { min-width: 1260px; }
+.monthly-expense-workspace { margin-bottom: 14px; }
+.monthly-summary-table { min-width: 680px; }
+.monthly-summary-table tbody tr { cursor: pointer; }
+.monthly-summary-table tbody tr.selected-row { background: #fbf1f1; box-shadow: inset 3px 0 0 var(--brand); }
+.data-table tfoot td { height: 54px; padding: 10px 16px; background: #faf8f7; border-top: 2px solid var(--line); color: #625a56; font-size: 10px; font-weight: 900; }
 .danger { color: #b64545 !important; }
 
 .financial-summary { margin-bottom: 14px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
