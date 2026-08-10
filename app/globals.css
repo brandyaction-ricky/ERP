@@ -76,6 +76,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .compact-row strong { display: block; font-size: 11px; }
 .compact-row small { display: block; margin-top: 4px; color: var(--soft); font-size: 9px; }
 .compact-row > span:last-child, .compact-row > b { margin-left: auto; color: #625a56; font-size: 10px; white-space: nowrap; }
+.recurring-workspace { margin-bottom: 14px; }
+.recurring-mark { flex: 0 0 auto; width: 28px; height: 28px; display: grid; place-items: center; border-radius: 5px; background: #f5e2e2; color: var(--brand); font-size: 15px; font-weight: 900; }
 .row-link { width: 100%; border: 0; background: white; text-align: left; }
 .row-link:hover { background: #fbf9f8; }
 .category-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--cta); }
