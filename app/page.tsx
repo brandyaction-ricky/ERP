@@ -166,6 +166,7 @@ function groupLeaveEntries(entries: LeaveEntry[]) {
       && previous?.leaveType === "full"
       && previous.employeeId === entry.employeeId
       && previous.note === entry.note
+      && previous.createdAt === entry.createdAt
       && nextBusinessDate(previous.endDate) === entry.leaveDate;
     if (canJoin && previous) {
       previous.ids.push(entry.id);
