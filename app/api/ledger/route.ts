@@ -54,6 +54,11 @@ type ExpenseRow = {
   amount: number;
   payment_method: string;
   payment_status: string;
+  is_recurring: boolean;
+  recurring_active: boolean;
+  recurring_day: number | null;
+  recurring_parent_id: number | null;
+  recurring_month: string | null;
   memo: string;
   created_at: string;
 };
@@ -91,7 +96,65 @@ function expenseCostType(value: unknown) {
   return costType;
 }
 
+function recurringDay(value: unknown) {
+  const day = Number(value);
+  if (!Number.isInteger(day) || day < 1 || day > 31) throw new Error("매월 등록일을 확인해주세요.");
+  return day;
+}
+
+function seoulDate() {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${value.year}-${value.month}-${value.day}`;
+}
+
+function monthDate(month: string, day: number) {
+  const [year, monthNumber] = month.split("-").map(Number);
+  const lastDay = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
+  return `${month}-${String(Math.min(day, lastDay)).padStart(2, "0")}`;
+}
+
+async function ensureRecurringExpenses(client: SupabaseClient) {
+  const currentMonth = seoulDate().slice(0, 7);
+  const { data, error } = await client
+    .from("erp_expenses")
+    .select("*")
+    .eq("is_recurring", true)
+    .eq("recurring_active", true);
+  if (error) throw new Error(error.message);
+
+  for (const source of (data ?? []) as ExpenseRow[]) {
+    if (source.expense_date.slice(0, 7) >= currentMonth) continue;
+    const { error: insertError } = await client.from("erp_expenses").upsert({
+      expense_date: monthDate(currentMonth, source.recurring_day ?? 1),
+      cost_type: "fixed",
+      category: source.category,
+      description: source.description,
+      vendor: source.vendor,
+      amount: source.amount,
+      payment_method: source.payment_method,
+      payment_status: "scheduled",
+      is_recurring: false,
+      recurring_active: false,
+      recurring_day: null,
+      recurring_parent_id: source.id,
+      recurring_month: currentMonth,
+      memo: source.memo,
+    }, {
+      onConflict: "recurring_parent_id,recurring_month",
+      ignoreDuplicates: true,
+    });
+    if (insertError) throw new Error(insertError.message);
+  }
+}
+
 async function readLedger(client: SupabaseClient) {
+  await ensureRecurringExpenses(client);
   const [employeeResult, leaveResult, contractResult, expenseResult] = await Promise.all([
     client.from("erp_employees").select("*").order("name"),
     client
@@ -157,6 +220,11 @@ async function readLedger(client: SupabaseClient) {
     amount: Number(row.amount),
     paymentMethod: row.payment_method,
     paymentStatus: row.payment_status,
+    isRecurring: row.is_recurring,
+    recurringActive: row.recurring_active,
+    recurringDay: row.recurring_day,
+    recurringParentId: row.recurring_parent_id,
+    recurringMonth: row.recurring_month,
     memo: row.memo,
     createdAt: row.created_at,
   }));
@@ -246,15 +314,22 @@ export async function POST(request: Request) {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(expenseDate) || !category || !description) {
         return fail(null, "비용 필수 정보를 확인해주세요.", 400);
       }
+      const costType = expenseCostType(body.costType);
+      const repeatMonthly = costType === "fixed" && body.repeatMonthly === true;
       const { error } = await client.from("erp_expenses").insert({
         expense_date: expenseDate,
-        cost_type: expenseCostType(body.costType),
+        cost_type: costType,
         category,
         description,
         vendor: String(body.vendor ?? "").trim(),
         amount: nonNegativeNumber(body.amount, "금액"),
         payment_method: String(body.paymentMethod ?? "법인카드"),
         payment_status: String(body.paymentStatus ?? "paid"),
+        is_recurring: repeatMonthly,
+        recurring_active: repeatMonthly,
+        recurring_day: repeatMonthly ? recurringDay(body.recurringDay) : null,
+        recurring_parent_id: null,
+        recurring_month: null,
         memo: String(body.memo ?? "").trim(),
       });
       if (error) throw new Error(error.message);
@@ -319,15 +394,20 @@ export async function PATCH(request: Request) {
       }).eq("id", id);
       if (error) throw new Error(error.message);
     } else if (action === "expense") {
+      const costType = expenseCostType(body.costType);
+      const repeatMonthly = costType === "fixed" && body.repeatMonthly === true;
       const { error } = await client.from("erp_expenses").update({
         expense_date: String(body.expenseDate ?? ""),
-        cost_type: expenseCostType(body.costType),
+        cost_type: costType,
         category: String(body.category ?? "").trim(),
         description: String(body.description ?? "").trim(),
         vendor: String(body.vendor ?? "").trim(),
         amount: nonNegativeNumber(body.amount, "금액"),
         payment_method: String(body.paymentMethod ?? "법인카드"),
         payment_status: String(body.paymentStatus ?? "paid"),
+        is_recurring: repeatMonthly,
+        recurring_active: repeatMonthly,
+        recurring_day: repeatMonthly ? recurringDay(body.recurringDay) : null,
         memo: String(body.memo ?? "").trim(),
         updated_at: new Date().toISOString(),
       }).eq("id", id);
