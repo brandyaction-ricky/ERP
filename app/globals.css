@@ -32,7 +32,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .desktop-nav button.active { color: var(--brand); }
 .desktop-nav button.active::after { content: ""; position: absolute; left: 14px; right: 14px; bottom: 0; height: 3px; background: var(--brand); border-radius: 4px 4px 0 0; }
 .top-actions { margin-left: auto; display: flex; align-items: center; gap: 15px; }
-.admin-badge { display: flex; align-items: center; gap: 7px; padding: 7px 10px; background: #f6f3f2; border-radius: 9px; color: #6f6865; font-size: 10px; font-weight: 800; }
+.admin-badge { display: flex; align-items: center; gap: 7px; padding: 7px 10px; background: #f6f3f2; border-radius: 5px; color: #6f6865; font-size: 10px; font-weight: 800; }
 .admin-badge i { width: 7px; height: 7px; background: #57b586; border-radius: 50%; box-shadow: 0 0 0 3px #e2f1e9; }
 .logout-button, .text-button { border: 0; background: transparent; color: #746d69; font-size: 10px; font-weight: 800; }
 .logout-button:hover, .text-button:hover { color: var(--brand); }
@@ -49,7 +49,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .primary-button:disabled { opacity: .48; cursor: wait; transform: none; }
 .secondary-button { background: white; border-color: #ddd7d4; color: #4e4744; }
 .secondary-button:hover { border-color: #b9b0ac; background: #fdfcfc; }
-.compact { min-height: 34px; padding: 0 12px; border-radius: 9px; font-size: 10px; }
+.compact { min-height: 34px; padding: 0 12px; border-radius: 5px; font-size: 10px; }
 
 .stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 13px; margin-bottom: 16px; }
 .stat-card { min-height: 132px; padding: 21px 22px; background: white; border: 1px solid var(--line); border-radius: 17px; overflow: hidden; position: relative; }
@@ -82,9 +82,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .avatar { flex: 0 0 auto; width: 36px; height: 36px; display: grid; place-items: center; border-radius: 11px; background: #f1e2e2; color: var(--brand-deep); font-size: 10px; font-weight: 900; }
 
 .section-head .filters, .filters { display: flex; align-items: center; gap: 8px; }
-.search-input, .filters select, .filters input, .toolbar-actions select { height: 36px; padding: 0 11px; border: 1px solid #e2dcda; border-radius: 9px; background: white; font-size: 10px; }
+.search-input, .filters select, .filters input, .toolbar-actions select { height: 36px; padding: 0 11px; border: 1px solid #e2dcda; border-radius: 5px; background: white; font-size: 10px; }
 .search-input { width: 225px; background: #f8f6f5; border-color: transparent; }
-.segment { padding: 3px; display: flex; background: #f5f2f1; border-radius: 9px; }
+.segment { padding: 3px; display: flex; background: #f5f2f1; border-radius: 5px; }
 .segment button { height: 29px; padding: 0 10px; border: 0; background: transparent; border-radius: 7px; color: #847c78; font-size: 9px; font-weight: 800; }
 .segment button.active { background: white; color: var(--brand); box-shadow: 0 2px 8px rgba(42,30,25,.08); }
 
@@ -169,7 +169,7 @@ footer p { margin: 0; }
 .form-grid.three { grid-template-columns: repeat(3, 1fr); }
 .field { display: grid; gap: 7px; }
 .field > span { color: #504946; font-size: 9px; font-weight: 850; }
-.field input, .field select, .field textarea { width: 100%; min-height: 41px; padding: 0 11px; border: 1px solid #ddd7d4; border-radius: 9px; background: white; font-size: 10px; }
+.field input, .field select, .field textarea { width: 100%; min-height: 41px; padding: 0 11px; border: 1px solid #ddd7d4; border-radius: 5px; background: white; font-size: 10px; }
 .field textarea { min-height: 72px; padding-top: 10px; resize: vertical; line-height: 1.6; }
 .field input:focus, .field select:focus, .field textarea:focus { border-color: var(--brand); outline: 0; box-shadow: 0 0 0 3px #f8eaea; }
 .modal-actions { margin-top: 4px; display: grid; grid-template-columns: 1fr 1.6fr; gap: 8px; }
@@ -179,7 +179,7 @@ footer p { margin: 0; }
 .login-shell { min-height: 100vh; padding: 24px; display: grid; place-items: center; background: radial-gradient(circle at 80% 10%,#f5e4e4 0,transparent 34%),var(--canvas); }
 .login-card { width: min(430px,100%); padding: 38px; background: white; border: 1px solid var(--line); border-radius: 22px; box-shadow: 0 24px 80px rgba(99,1,0,.08); }
 .login-brand { display: flex; align-items: center; gap: 10px; font-size: 12px; font-weight: 900; letter-spacing: .04em; }
-.login-brand span { width: 31px; height: 31px; display: grid; place-items: center; background: var(--brand); color: white; border-radius: 9px 9px 3px 9px; font-size: 14px; }
+.login-brand span { width: 31px; height: 31px; display: grid; place-items: center; background: var(--brand); color: white; border-radius: 5px 5px 3px 5px; font-size: 14px; }
 .login-kicker { margin: 36px 0 10px; color: var(--brand); font-size: 9px; font-weight: 900; letter-spacing: .2em; }
 .login-card h1 { margin: 0; color: var(--brand); font-size: 31px; letter-spacing: -.045em; }
 .login-copy { margin: 12px 0 26px; color: var(--muted); font-size: 12px; line-height: 1.7; }
