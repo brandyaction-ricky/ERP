@@ -49,6 +49,7 @@ type Contract = {
 type Expense = {
   id: number;
   expenseDate: string;
+  costType: "fixed" | "variable";
   category: string;
   description: string;
   vendor: string;
@@ -65,7 +66,10 @@ type EmployeeTab = "info" | "contract" | "leave";
 
 const EMPTY_DATA: ERPData = { employees: [], entries: [], contracts: [], expenses: [], schemaReady: true };
 const DEPARTMENTS = ["콘텐츠팀", "마케팅팀", "디자인팀", "개발팀", "경영지원"];
-const EXPENSE_CATEGORIES = ["인건비", "임대료·관리비", "광고비", "소프트웨어·구독료", "외주비", "세금·수수료", "복리후생비", "출장·교통비", "기타 비용"];
+const EXPENSE_CATEGORIES: Record<Expense["costType"], string[]> = {
+  fixed: ["인건비", "임대료·관리비", "보험료", "소프트웨어·구독료", "통신비", "세금·공과금", "기타 고정비"],
+  variable: ["광고비", "카드값", "외주비", "복리후생비", "출장·교통비", "소모품비", "수수료", "기타 변동비"],
+};
 
 function localIsoDate(date = new Date()) {
   const offset = date.getTimezoneOffset() * 60_000;
@@ -161,7 +165,8 @@ function expenseDraft(expense?: Expense) {
   return {
     id: expense?.id,
     expenseDate: expense?.expenseDate ?? localIsoDate(),
-    category: expense?.category ?? "소프트웨어·구독료",
+    costType: expense?.costType ?? ("fixed" as Expense["costType"]),
+    category: expense?.category ?? EXPENSE_CATEGORIES.fixed[0],
     description: expense?.description ?? "",
     vendor: expense?.vendor ?? "",
     amount: expense ? String(expense.amount) : "",
@@ -493,9 +498,13 @@ export default function Home() {
       )}
 
       {expenseModal && (
-        <Modal title={expenseForm.id ? "비용 내역 수정" : "회사 비용 등록"} description="증빙 자료를 기준으로 비용을 직접 입력합니다." onClose={() => setExpenseModal(false)}>
+        <Modal title={expenseForm.id ? "비용 내역 수정" : "회사 비용 등록"} description="고정비와 변동비를 구분해 회사 지출을 기록합니다." onClose={() => setExpenseModal(false)}>
           <form className="modal-form" onSubmit={submitExpense}>
-            <div className="form-grid two"><Field label="사용일 *"><input required type="date" value={expenseForm.expenseDate} onChange={(e) => setExpenseForm({ ...expenseForm, expenseDate: e.target.value })} /></Field><Field label="비용 분류 *"><select value={expenseForm.category} onChange={(e) => setExpenseForm({ ...expenseForm, category: e.target.value })}>{EXPENSE_CATEGORIES.map((item) => <option key={item}>{item}</option>)}</select></Field></div>
+            <div className="form-grid two">
+              <Field label="비용 구분 *"><select value={expenseForm.costType} onChange={(e) => { const costType = e.target.value as Expense["costType"]; setExpenseForm({ ...expenseForm, costType, category: EXPENSE_CATEGORIES[costType][0] }); }}><option value="fixed">고정비</option><option value="variable">변동비</option></select></Field>
+              <Field label="세부 항목 *"><select value={expenseForm.category} onChange={(e) => setExpenseForm({ ...expenseForm, category: e.target.value })}>{EXPENSE_CATEGORIES[expenseForm.costType].map((item) => <option key={item}>{item}</option>)}</select></Field>
+            </div>
+            <Field label="사용일 *"><input required type="date" value={expenseForm.expenseDate} onChange={(e) => setExpenseForm({ ...expenseForm, expenseDate: e.target.value })} /></Field>
             <Field label="사용 내역 *"><input required value={expenseForm.description} onChange={(e) => setExpenseForm({ ...expenseForm, description: e.target.value })} placeholder="예: 메타 광고비 8월 1주차" /></Field>
             <div className="form-grid two"><Field label="거래처"><input value={expenseForm.vendor} onChange={(e) => setExpenseForm({ ...expenseForm, vendor: e.target.value })} /></Field><Field label="금액 *"><input required type="number" min="0" value={expenseForm.amount} onChange={(e) => setExpenseForm({ ...expenseForm, amount: e.target.value })} /></Field></div>
             <div className="form-grid two"><Field label="결제수단"><select value={expenseForm.paymentMethod} onChange={(e) => setExpenseForm({ ...expenseForm, paymentMethod: e.target.value })}><option>법인카드</option><option>계좌이체</option><option>자동이체</option><option>개인카드</option><option>현금</option></select></Field><Field label="결제 상태"><select value={expenseForm.paymentStatus} onChange={(e) => setExpenseForm({ ...expenseForm, paymentStatus: e.target.value as Expense["paymentStatus"] })}><option value="paid">결제 완료</option><option value="scheduled">결제 예정</option></select></Field></div>
@@ -562,9 +571,33 @@ function LeaveManagement({ rows, entries, year, onYear, onLeave, onEmployee, onD
 }
 
 function ExpenseManagement({ expenses, month, monthlyTotal, annualTotal, onMonth, onEdit, onDelete }: { expenses: Expense[]; month: string; monthlyTotal: number; annualTotal: number; onMonth: (month: string) => void; onEdit: (expense: Expense) => void; onDelete: (id: number) => void }) {
-  const categoryTotals = EXPENSE_CATEGORIES.map((category) => ({ category, total: expenses.filter((expense) => expense.category === category).reduce((sum, expense) => sum + expense.amount, 0) })).filter((item) => item.total > 0).sort((a, b) => b.total - a.total);
-  const scheduled = expenses.filter((expense) => expense.paymentStatus === "scheduled").reduce((sum, expense) => sum + expense.amount, 0);
-  return <><div className="stat-grid expenses-stats"><Stat label="이번 달 비용" value={formatMoney(monthlyTotal)} note={`${expenses.length}건 등록`} tone="red" /><Stat label="결제 예정" value={formatMoney(scheduled)} note="아직 결제되지 않은 비용" /><Stat label="올해 누적 비용" value={formatMoney(annualTotal)} note="현재 연도 전체 합계" /><Stat label="가장 큰 지출 항목" value={categoryTotals[0]?.category ?? "-"} note={categoryTotals[0] ? formatMoney(categoryTotals[0].total) : "등록된 비용 없음"} tone="cream" /></div><section className="workspace"><div className="section-head"><div><h2>비용 내역</h2><p>거래일 기준으로 회사 지출을 관리합니다.</p></div><div className="filters"><input type="month" value={month} onChange={(e) => onMonth(e.target.value)} /></div></div>{expenses.length ? <div className="table-wrap"><table className="data-table expense-table"><thead><tr><th>사용일</th><th>분류</th><th>사용 내역</th><th>거래처</th><th>결제수단</th><th>상태</th><th>금액</th><th /></tr></thead><tbody>{expenses.map((expense) => <tr key={expense.id}><td>{formatDate(expense.expenseDate, false)}</td><td><span className="category-badge">{expense.category}</span></td><td><strong>{expense.description}</strong><small>{expense.memo || "메모 없음"}</small></td><td>{expense.vendor || "-"}</td><td>{expense.paymentMethod}</td><td><span className={`status-badge ${expense.paymentStatus === "paid" ? "active" : "leave"}`}>{expense.paymentStatus === "paid" ? "결제 완료" : "결제 예정"}</span></td><td className="money-cell">{formatMoney(expense.amount)}</td><td><div className="row-actions"><button className="text-button" onClick={() => onEdit(expense)}>수정</button><button className="text-button danger" onClick={() => onDelete(expense.id)}>삭제</button></div></td></tr>)}</tbody></table></div> : <Empty text="선택한 달에 등록된 회사 비용이 없습니다." />}</section></>;
+  const [costFilter, setCostFilter] = useState<"all" | Expense["costType"]>("all");
+  const fixedTotal = expenses.filter((expense) => expense.costType === "fixed").reduce((sum, expense) => sum + expense.amount, 0);
+  const variableTotal = expenses.filter((expense) => expense.costType === "variable").reduce((sum, expense) => sum + expense.amount, 0);
+  const visibleExpenses = costFilter === "all" ? expenses : expenses.filter((expense) => expense.costType === costFilter);
+
+  return <>
+    <div className="stat-grid expenses-stats">
+      <Stat label="이번 달 총 비용" value={formatMoney(monthlyTotal)} note={`${expenses.length}건 등록`} tone="red" />
+      <Stat label="고정비" value={formatMoney(fixedTotal)} note="인건비·월세·보험비 등" />
+      <Stat label="변동비" value={formatMoney(variableTotal)} note="광고비·카드값 등" />
+      <Stat label="올해 누적 비용" value={formatMoney(annualTotal)} note="현재 연도 전체 합계" tone="cream" />
+    </div>
+    <section className="workspace">
+      <div className="section-head">
+        <div><h2>비용 내역</h2><p>고정비와 변동비를 나눠 회사 지출을 관리합니다.</p></div>
+        <div className="filters">
+          <div className="segment" aria-label="비용 유형 필터">
+            <button className={costFilter === "all" ? "active" : ""} onClick={() => setCostFilter("all")}>전체</button>
+            <button className={costFilter === "fixed" ? "active" : ""} onClick={() => setCostFilter("fixed")}>고정비</button>
+            <button className={costFilter === "variable" ? "active" : ""} onClick={() => setCostFilter("variable")}>변동비</button>
+          </div>
+          <input type="month" value={month} onChange={(e) => onMonth(e.target.value)} />
+        </div>
+      </div>
+      {visibleExpenses.length ? <div className="table-wrap"><table className="data-table expense-table"><thead><tr><th>사용일</th><th>구분</th><th>항목</th><th>사용 내역</th><th>거래처</th><th>결제수단</th><th>상태</th><th>금액</th><th /></tr></thead><tbody>{visibleExpenses.map((expense) => <tr key={expense.id}><td>{formatDate(expense.expenseDate, false)}</td><td><span className={`cost-type-badge ${expense.costType}`}>{expense.costType === "fixed" ? "고정비" : "변동비"}</span></td><td><span className="category-badge">{expense.category}</span></td><td><strong>{expense.description}</strong><small>{expense.memo || "메모 없음"}</small></td><td>{expense.vendor || "-"}</td><td>{expense.paymentMethod}</td><td><span className={`status-badge ${expense.paymentStatus === "paid" ? "active" : "leave"}`}>{expense.paymentStatus === "paid" ? "결제 완료" : "결제 예정"}</span></td><td className="money-cell">{formatMoney(expense.amount)}</td><td><div className="row-actions"><button className="text-button" onClick={() => onEdit(expense)}>수정</button><button className="text-button danger" onClick={() => onDelete(expense.id)}>삭제</button></div></td></tr>)}</tbody></table></div> : <Empty text={costFilter === "all" ? "선택한 달에 등록된 회사 비용이 없습니다." : `선택한 달에 등록된 ${costFilter === "fixed" ? "고정비" : "변동비"}가 없습니다.`} />}
+    </section>
+  </>;
 }
 
 function Stat({ label, value, note, tone = "default" }: { label: string; value: string; note: string; tone?: "default" | "red" | "cream" }) { return <article className={`stat-card ${tone}`}><span className="stat-label">{label}</span><strong>{value}</strong><p>{note}</p></article>; }
