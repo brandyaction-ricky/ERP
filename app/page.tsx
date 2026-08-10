@@ -2,8 +2,6 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
-  BankAccount,
-  BankAccountManagement,
   CardManagement,
   CardUsage,
   CardUsageManagement,
@@ -73,11 +71,11 @@ type Expense = {
   createdAt: string;
 };
 
-type ERPData = { employees: Employee[]; entries: LeaveEntry[]; contracts: Contract[]; expenses: Expense[]; cards: CompanyCard[]; bankAccounts: BankAccount[]; cardUsages: CardUsage[]; schemaReady?: boolean };
-type Section = "dashboard" | "employees" | "leave" | "expenses" | "cards" | "accounts" | "evidence";
+type ERPData = { employees: Employee[]; entries: LeaveEntry[]; contracts: Contract[]; expenses: Expense[]; cards: CompanyCard[]; cardUsages: CardUsage[]; schemaReady?: boolean };
+type Section = "dashboard" | "employees" | "leave" | "expenses" | "cards" | "evidence";
 type EmployeeTab = "info" | "contract" | "leave";
 
-const EMPTY_DATA: ERPData = { employees: [], entries: [], contracts: [], expenses: [], cards: [], bankAccounts: [], cardUsages: [], schemaReady: true };
+const EMPTY_DATA: ERPData = { employees: [], entries: [], contracts: [], expenses: [], cards: [], cardUsages: [], schemaReady: true };
 const DEPARTMENTS = ["콘텐츠팀", "마케팅팀", "디자인팀", "개발팀", "경영지원"];
 const EXPENSE_CATEGORIES: Record<Expense["costType"], string[]> = {
   fixed: ["인건비", "임대료·관리비", "보험료", "소프트웨어·구독료", "통신비", "세금·공과금", "기타 고정비"],
@@ -212,7 +210,7 @@ export default function Home() {
   const [contractModal, setContractModal] = useState(false);
   const [expenseModal, setExpenseModal] = useState(false);
   const [employeeForm, setEmployeeForm] = useState(employeeDraft());
-  const [leaveForm, setLeaveForm] = useState({ employeeId: "", leaveDate: today, leaveType: "full" as LeaveEntry["leaveType"], note: "" });
+  const [leaveForm, setLeaveForm] = useState({ employeeId: "", leaveStartDate: today, leaveEndDate: today, leaveType: "full" as LeaveEntry["leaveType"], note: "" });
   const [contractForm, setContractForm] = useState(contractDraft(0));
   const [expenseForm, setExpenseForm] = useState(expenseDraft());
 
@@ -286,7 +284,7 @@ export default function Home() {
     }
   }
 
-  async function remove(kind: "employee" | "entry" | "contract" | "expense" | "card" | "bankAccount" | "cardUsage", id: number) {
+  async function remove(kind: "employee" | "entry" | "contract" | "expense" | "card" | "cardUsage", id: number) {
     const message = kind === "employee" ? "직원과 연결된 계약·연차 기록을 모두 삭제할까요?" : "선택한 기록을 삭제할까요?";
     if (!window.confirm(message)) return;
     setSaving(true);
@@ -310,7 +308,7 @@ export default function Home() {
   }
 
   function openLeave(employeeId?: number) {
-    setLeaveForm({ employeeId: String(employeeId ?? activeEmployees[0]?.id ?? ""), leaveDate: today, leaveType: "full", note: "" });
+    setLeaveForm({ employeeId: String(employeeId ?? activeEmployees[0]?.id ?? ""), leaveStartDate: today, leaveEndDate: today, leaveType: "full", note: "" });
     setLeaveModal(true);
   }
 
@@ -342,7 +340,7 @@ export default function Home() {
     event.preventDefault();
     if (await save({ action: "leave", ...leaveForm })) {
       setLeaveModal(false);
-      setToast("연차 사용 내역이 등록되었습니다.");
+      setToast("연차 사용 기간이 등록되었습니다.");
     }
   }
 
@@ -374,7 +372,6 @@ export default function Home() {
     leave: ["연차 관리", "직원별 발생·사용·잔여 연차를 확인합니다."],
     expenses: ["회사 비용", "매월 발생한 회사 비용을 직접 입력하고 집계합니다."],
     cards: ["카드 관리", "법인카드 정보와 한도·담당자를 관리합니다."],
-    accounts: ["통장 관리", "회사 통장과 잔액·운영 목적을 관리합니다."],
     evidence: ["카드 사용·증빙", "카드 사용 내역과 증빙 제출 상태를 관리합니다."],
   }[section];
 
@@ -385,9 +382,9 @@ export default function Home() {
           <span className="brand-mark">B</span><span>BRANDYACTION <b>ERP</b></span>
         </button>
         <nav className="desktop-nav" aria-label="관리 메뉴">
-          {(["dashboard", "employees", "leave", "expenses", "cards", "accounts", "evidence"] as Section[]).map((item) => (
+          {(["dashboard", "employees", "leave", "expenses", "cards", "evidence"] as Section[]).map((item) => (
             <button key={item} className={section === item ? "active" : ""} onClick={() => { setSection(item); if (item !== "employees") setSelectedEmployeeId(null); }}>
-              {{ dashboard: "대시보드", employees: "직원 관리", leave: "연차 관리", expenses: "회사 비용", cards: "카드 관리", accounts: "통장 관리", evidence: "카드 사용·증빙" }[item]}
+              {{ dashboard: "대시보드", employees: "직원 관리", leave: "연차 관리", expenses: "회사 비용", cards: "카드 관리", evidence: "카드 사용·증빙" }[item]}
             </button>
           ))}
         </nav>
@@ -474,10 +471,6 @@ export default function Home() {
               <CardManagement cards={data.cards} employees={data.employees} saving={saving} onSave={save} onDelete={(id) => remove("card", id)} />
             )}
 
-            {section === "accounts" && (
-              <BankAccountManagement accounts={data.bankAccounts} employees={data.employees} saving={saving} onSave={save} onDelete={(id) => remove("bankAccount", id)} />
-            )}
-
             {section === "evidence" && (
               <CardUsageManagement usages={data.cardUsages} cards={data.cards} employees={data.employees} saving={saving} onSave={save} onDelete={(id) => remove("cardUsage", id)} />
             )}
@@ -503,11 +496,11 @@ export default function Home() {
       )}
 
       {leaveModal && (
-        <Modal title="연차 사용 등록" description="연차와 반차 사용 내역을 기록합니다." onClose={() => setLeaveModal(false)}>
+        <Modal title="연차 사용 등록" description="기간 연차는 토·일요일을 제외하고 자동 등록됩니다." onClose={() => setLeaveModal(false)}>
           <form className="modal-form" onSubmit={submitLeave}>
             <Field label="직원 *"><select required value={leaveForm.employeeId} onChange={(e) => setLeaveForm({ ...leaveForm, employeeId: e.target.value })}><option value="">직원을 선택하세요</option>{activeEmployees.map((employee) => <option key={employee.id} value={employee.id}>{employee.name} · {employee.department}</option>)}</select></Field>
-            <Field label="사용일 *"><input required type="date" value={leaveForm.leaveDate} onChange={(e) => setLeaveForm({ ...leaveForm, leaveDate: e.target.value })} /></Field>
-            <Field label="사용 유형"><select value={leaveForm.leaveType} onChange={(e) => setLeaveForm({ ...leaveForm, leaveType: e.target.value as LeaveEntry["leaveType"] })}><option value="full">연차 1일</option><option value="half-am">오전 반차 0.5일</option><option value="half-pm">오후 반차 0.5일</option></select></Field>
+            <div className="form-grid two"><Field label="시작일 *"><input required type="date" value={leaveForm.leaveStartDate} onChange={(e) => { const leaveStartDate = e.target.value; setLeaveForm({ ...leaveForm, leaveStartDate, leaveEndDate: leaveForm.leaveType === "full" && leaveForm.leaveEndDate >= leaveStartDate ? leaveForm.leaveEndDate : leaveStartDate }); }} /></Field><Field label="종료일 *"><input required type="date" min={leaveForm.leaveStartDate} disabled={leaveForm.leaveType !== "full"} value={leaveForm.leaveEndDate} onChange={(e) => setLeaveForm({ ...leaveForm, leaveEndDate: e.target.value })} /></Field></div>
+            <Field label="사용 유형"><select value={leaveForm.leaveType} onChange={(e) => { const leaveType = e.target.value as LeaveEntry["leaveType"]; setLeaveForm({ ...leaveForm, leaveType, leaveEndDate: leaveType === "full" ? leaveForm.leaveEndDate : leaveForm.leaveStartDate }); }}><option value="full">연차 1일 이상</option><option value="half-am">오전 반차 0.5일</option><option value="half-pm">오후 반차 0.5일</option></select></Field>
             <Field label="메모"><textarea value={leaveForm.note} onChange={(e) => setLeaveForm({ ...leaveForm, note: e.target.value })} placeholder="필요한 경우 사유나 참고사항을 기록하세요." /></Field>
             <ModalActions saving={saving} onCancel={() => setLeaveModal(false)} label="연차 등록" />
           </form>
