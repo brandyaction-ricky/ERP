@@ -159,6 +159,21 @@ function oneOf(value: unknown, allowed: string[], label: string, fallback: strin
   return text;
 }
 
+function businessDatesBetween(startDate: string, endDate: string) {
+  const start = new Date(`${startDate}T00:00:00Z`);
+  const end = new Date(`${endDate}T00:00:00Z`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) throw new Error("연차 기간을 확인해주세요.");
+  const span = Math.floor((end.getTime() - start.getTime()) / 86_400_000) + 1;
+  if (span > 366) throw new Error("연차 기간은 1년 이내로 선택해주세요.");
+  const dates: string[] = [];
+  for (let day = new Date(start); day <= end; day.setUTCDate(day.getUTCDate() + 1)) {
+    const weekday = day.getUTCDay();
+    if (weekday !== 0 && weekday !== 6) dates.push(day.toISOString().slice(0, 10));
+  }
+  if (!dates.length) throw new Error("선택한 기간에 평일이 없습니다.");
+  return dates;
+}
+
 function expenseCostType(value: unknown) {
   const costType = String(value ?? "variable");
   if (costType !== "fixed" && costType !== "variable") throw new Error("비용 구분을 확인해주세요.");
@@ -392,18 +407,21 @@ export async function POST(request: Request) {
       if (error) throw new Error(error.message);
     } else if (action === "leave") {
       const employeeId = Number(body.employeeId);
-      const leaveDate = String(body.leaveDate ?? "");
+      const leaveStartDate = String(body.leaveStartDate ?? body.leaveDate ?? "");
+      const leaveEndDate = String(body.leaveEndDate ?? leaveStartDate);
       const leaveType = String(body.leaveType ?? "full");
-      if (!Number.isInteger(employeeId) || !/^\d{4}-\d{2}-\d{2}$/.test(leaveDate)) {
+      if (!Number.isInteger(employeeId) || !/^\d{4}-\d{2}-\d{2}$/.test(leaveStartDate) || !/^\d{4}-\d{2}-\d{2}$/.test(leaveEndDate)) {
         return fail(null, "연차 정보를 확인해주세요.", 400);
       }
-      const { error } = await client.from("erp_leave_entries").insert({
+      if (leaveType !== "full" && leaveStartDate !== leaveEndDate) return fail(null, "반차는 하루만 선택할 수 있습니다.", 400);
+      const leaveDates = businessDatesBetween(leaveStartDate, leaveEndDate);
+      const { error } = await client.from("erp_leave_entries").insert(leaveDates.map((leaveDate) => ({
         employee_id: employeeId,
         leave_date: leaveDate,
         amount: leaveType === "full" ? 1 : 0.5,
         leave_type: leaveType,
         note: String(body.note ?? "").trim(),
-      });
+      })));
       if (error) throw new Error(error.message);
     } else if (action === "contract") {
       const employeeId = Number(body.employeeId);
