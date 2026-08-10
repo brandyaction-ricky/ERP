@@ -261,8 +261,8 @@ footer p { margin: 0; }
 
 .login-shell { min-height: 100vh; padding: 24px; display: grid; place-items: center; background: radial-gradient(circle at 80% 10%,#f5e4e4 0,transparent 34%),var(--canvas); }
 .login-card { width: min(430px,100%); padding: 38px; background: white; border: 1px solid var(--line); border-radius: 5px; box-shadow: 0 24px 80px rgba(99,1,0,.08); }
-.login-brand { display: flex; align-items: center; gap: 10px; font-size: 12px; font-weight: 900; letter-spacing: .04em; }
-.login-brand span { width: 31px; height: 31px; display: grid; place-items: center; background: var(--brand); color: white; border-radius: 5px; font-size: 14px; }
+.login-brand { display: flex; align-items: center; }
+.login-brand img { display: block; width: 170px; height: auto; object-fit: contain; }
 .login-kicker { margin: 36px 0 10px; color: var(--brand); font-size: 9px; font-weight: 900; letter-spacing: .2em; }
 .login-card h1 { margin: 0; color: var(--brand); font-size: 31px; letter-spacing: -.045em; }
 .login-copy { margin: 12px 0 26px; color: var(--muted); font-size: 12px; line-height: 1.7; }

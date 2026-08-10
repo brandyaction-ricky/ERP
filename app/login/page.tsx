@@ -30,9 +30,9 @@ export default function LoginPage() {
   return (
     <main className="login-shell">
       <section className="login-card">
-        <div className="login-brand"><span>B</span> BRANDYACTION ERP</div>
+        <div className="login-brand"><img src="/brandyaction-logo.png" alt="Brandy Action" /></div>
         <p className="login-kicker">INTERNAL MANAGEMENT</p>
-        <h1>연월차 관리 대장</h1>
+        <h1>Brandyaction ERP</h1>
         <p className="login-copy">직원 정보를 안전하게 관리하기 위해 접근 비밀번호를 입력해주세요.</p>
         <form onSubmit={submit}>
           <label htmlFor="password">접근 비밀번호</label>
