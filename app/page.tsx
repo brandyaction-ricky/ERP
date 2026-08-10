@@ -56,6 +56,11 @@ type Expense = {
   amount: number;
   paymentMethod: string;
   paymentStatus: "paid" | "scheduled";
+  isRecurring: boolean;
+  recurringActive: boolean;
+  recurringDay: number | null;
+  recurringParentId: number | null;
+  recurringMonth: string | null;
   memo: string;
   createdAt: string;
 };
@@ -172,6 +177,8 @@ function expenseDraft(expense?: Expense) {
     amount: expense ? String(expense.amount) : "",
     paymentMethod: expense?.paymentMethod ?? "법인카드",
     paymentStatus: expense?.paymentStatus ?? ("paid" as Expense["paymentStatus"]),
+    repeatMonthly: expense?.isRecurring ?? false,
+    recurringDay: String(expense?.recurringDay ?? Number((expense?.expenseDate ?? localIsoDate()).slice(8, 10))),
     memo: expense?.memo ?? "",
   };
 }
@@ -449,7 +456,7 @@ export default function Home() {
             )}
 
             {section === "expenses" && (
-              <ExpenseManagement expenses={monthExpenses} month={expenseMonth} monthlyTotal={monthlyExpenseTotal} annualTotal={annualExpenseTotal} onMonth={setExpenseMonth} onEdit={openExpense} onDelete={(id) => remove("expense", id)} />
+              <ExpenseManagement expenses={monthExpenses} recurringExpenses={data.expenses.filter((expense) => expense.isRecurring && expense.recurringActive)} month={expenseMonth} monthlyTotal={monthlyExpenseTotal} annualTotal={annualExpenseTotal} onMonth={setExpenseMonth} onEdit={openExpense} onDelete={(id) => remove("expense", id)} />
             )}
           </>
         )}
@@ -501,9 +508,10 @@ export default function Home() {
         <Modal title={expenseForm.id ? "비용 내역 수정" : "회사 비용 등록"} description="고정비와 변동비를 구분해 회사 지출을 기록합니다." onClose={() => setExpenseModal(false)}>
           <form className="modal-form" onSubmit={submitExpense}>
             <div className="form-grid two">
-              <Field label="비용 구분 *"><select value={expenseForm.costType} onChange={(e) => { const costType = e.target.value as Expense["costType"]; setExpenseForm({ ...expenseForm, costType, category: EXPENSE_CATEGORIES[costType][0] }); }}><option value="fixed">고정비</option><option value="variable">변동비</option></select></Field>
+              <Field label="비용 구분 *"><select value={expenseForm.costType} onChange={(e) => { const costType = e.target.value as Expense["costType"]; setExpenseForm({ ...expenseForm, costType, category: EXPENSE_CATEGORIES[costType][0], repeatMonthly: costType === "fixed" ? expenseForm.repeatMonthly : false }); }}><option value="fixed">고정비</option><option value="variable">변동비</option></select></Field>
               <Field label="세부 항목 *"><select value={expenseForm.category} onChange={(e) => setExpenseForm({ ...expenseForm, category: e.target.value })}>{EXPENSE_CATEGORIES[expenseForm.costType].map((item) => <option key={item}>{item}</option>)}</select></Field>
             </div>
+            {expenseForm.costType === "fixed" && <div className="form-grid two"><Field label="반복 설정"><select value={expenseForm.repeatMonthly ? "monthly" : "none"} onChange={(e) => setExpenseForm({ ...expenseForm, repeatMonthly: e.target.value === "monthly" })}><option value="none">이번 달만 등록</option><option value="monthly">매월 자동 등록</option></select></Field>{expenseForm.repeatMonthly && <Field label="매월 등록일"><input required type="number" min="1" max="31" value={expenseForm.recurringDay} onChange={(e) => setExpenseForm({ ...expenseForm, recurringDay: e.target.value })} /></Field>}</div>}
             <Field label="사용일 *"><input required type="date" value={expenseForm.expenseDate} onChange={(e) => setExpenseForm({ ...expenseForm, expenseDate: e.target.value })} /></Field>
             <Field label="사용 내역 *"><input required value={expenseForm.description} onChange={(e) => setExpenseForm({ ...expenseForm, description: e.target.value })} placeholder="예: 메타 광고비 8월 1주차" /></Field>
             <div className="form-grid two"><Field label="거래처"><input value={expenseForm.vendor} onChange={(e) => setExpenseForm({ ...expenseForm, vendor: e.target.value })} /></Field><Field label="금액 *"><input required type="number" min="0" value={expenseForm.amount} onChange={(e) => setExpenseForm({ ...expenseForm, amount: e.target.value })} /></Field></div>
@@ -570,7 +578,7 @@ function LeaveManagement({ rows, entries, year, onYear, onLeave, onEmployee, onD
   return <section className="workspace"><div className="section-head"><div><h2>{year}년 연차 대장</h2><p>연도별 연차 발생과 사용 내역을 관리합니다.</p></div><div className="filters"><div className="segment"><button className={view === "balance" ? "active" : ""} onClick={() => setView("balance")}>직원별 현황</button><button className={view === "history" ? "active" : ""} onClick={() => setView("history")}>사용 내역</button></div><select value={year} onChange={(e) => onYear(Number(e.target.value))}>{[year - 1, year, year + 1].map((item) => <option key={item}>{item}년</option>)}</select></div></div>{view === "balance" ? <div className="table-wrap"><table className="data-table leave-table"><thead><tr><th>직원</th><th>발생</th><th>사용</th><th>잔여</th><th>최근 사용</th><th /></tr></thead><tbody>{rows.map(({ employee, accrued, used, remaining, entries: employeeEntries }) => <tr key={employee.id}><td><button className="person person-link" onClick={() => onEmployee(employee)}><span className="avatar">{initials(employee.name)}</span><div><strong>{employee.name}</strong><small>{employee.department} · {employee.position}</small></div></button></td><td>{accrued}일</td><td>{used}일</td><td><span className={`remaining ${remaining < 3 ? "low" : ""}`}>{remaining}일</span></td><td>{employeeEntries[0] ? `${formatDate(employeeEntries[0].leaveDate)} · ${leaveLabel(employeeEntries[0].leaveType)}` : "사용 내역 없음"}</td><td><button className="secondary-button compact" onClick={() => onLeave(employee.id)}>등록</button></td></tr>)}</tbody></table></div> : entries.length ? <div className="table-wrap"><table className="data-table"><thead><tr><th>사용일</th><th>직원</th><th>유형</th><th>차감</th><th>메모</th><th /></tr></thead><tbody>{entries.map((entry) => <tr key={entry.id}><td>{formatDate(entry.leaveDate)}</td><td><strong>{entry.employeeName}</strong></td><td>{leaveLabel(entry.leaveType)}</td><td>{entry.amount}일</td><td>{entry.note || "-"}</td><td><button className="text-button danger" onClick={() => onDelete(entry.id)}>삭제</button></td></tr>)}</tbody></table></div> : <Empty text="선택한 연도의 연차 사용 내역이 없습니다." />}</section>;
 }
 
-function ExpenseManagement({ expenses, month, monthlyTotal, annualTotal, onMonth, onEdit, onDelete }: { expenses: Expense[]; month: string; monthlyTotal: number; annualTotal: number; onMonth: (month: string) => void; onEdit: (expense: Expense) => void; onDelete: (id: number) => void }) {
+function ExpenseManagement({ expenses, recurringExpenses, month, monthlyTotal, annualTotal, onMonth, onEdit, onDelete }: { expenses: Expense[]; recurringExpenses: Expense[]; month: string; monthlyTotal: number; annualTotal: number; onMonth: (month: string) => void; onEdit: (expense: Expense) => void; onDelete: (id: number) => void }) {
   const [costFilter, setCostFilter] = useState<"all" | Expense["costType"]>("all");
   const fixedTotal = expenses.filter((expense) => expense.costType === "fixed").reduce((sum, expense) => sum + expense.amount, 0);
   const variableTotal = expenses.filter((expense) => expense.costType === "variable").reduce((sum, expense) => sum + expense.amount, 0);
@@ -583,6 +591,10 @@ function ExpenseManagement({ expenses, month, monthlyTotal, annualTotal, onMonth
       <Stat label="변동비" value={formatMoney(variableTotal)} note="광고비·카드값 등" />
       <Stat label="올해 누적 비용" value={formatMoney(annualTotal)} note="현재 연도 전체 합계" tone="cream" />
     </div>
+    {recurringExpenses.length > 0 && <section className="workspace recurring-workspace">
+      <div className="section-head"><div><h2>매월 자동 등록</h2><p>매월 지정일에 결제 예정 고정비로 자동 생성됩니다.</p></div></div>
+      <div className="compact-list">{recurringExpenses.map((expense) => <div className="compact-row" key={expense.id}><span className="recurring-mark">↻</span><div><strong>{expense.description}</strong><small>{expense.category} · 매월 {expense.recurringDay}일 · {expense.vendor || "거래처 미입력"}</small></div><b>{formatMoney(expense.amount)}</b><button className="text-button" onClick={() => onEdit(expense)}>설정 수정</button></div>)}</div>
+    </section>}
     <section className="workspace">
       <div className="section-head">
         <div><h2>비용 내역</h2><p>고정비와 변동비를 나눠 회사 지출을 관리합니다.</p></div>
@@ -595,7 +607,7 @@ function ExpenseManagement({ expenses, month, monthlyTotal, annualTotal, onMonth
           <input type="month" value={month} onChange={(e) => onMonth(e.target.value)} />
         </div>
       </div>
-      {visibleExpenses.length ? <div className="table-wrap"><table className="data-table expense-table"><thead><tr><th>사용일</th><th>구분</th><th>항목</th><th>사용 내역</th><th>거래처</th><th>결제수단</th><th>상태</th><th>금액</th><th /></tr></thead><tbody>{visibleExpenses.map((expense) => <tr key={expense.id}><td>{formatDate(expense.expenseDate, false)}</td><td><span className={`cost-type-badge ${expense.costType}`}>{expense.costType === "fixed" ? "고정비" : "변동비"}</span></td><td><span className="category-badge">{expense.category}</span></td><td><strong>{expense.description}</strong><small>{expense.memo || "메모 없음"}</small></td><td>{expense.vendor || "-"}</td><td>{expense.paymentMethod}</td><td><span className={`status-badge ${expense.paymentStatus === "paid" ? "active" : "leave"}`}>{expense.paymentStatus === "paid" ? "결제 완료" : "결제 예정"}</span></td><td className="money-cell">{formatMoney(expense.amount)}</td><td><div className="row-actions"><button className="text-button" onClick={() => onEdit(expense)}>수정</button><button className="text-button danger" onClick={() => onDelete(expense.id)}>삭제</button></div></td></tr>)}</tbody></table></div> : <Empty text={costFilter === "all" ? "선택한 달에 등록된 회사 비용이 없습니다." : `선택한 달에 등록된 ${costFilter === "fixed" ? "고정비" : "변동비"}가 없습니다.`} />}
+      {visibleExpenses.length ? <div className="table-wrap"><table className="data-table expense-table"><thead><tr><th>사용일</th><th>구분</th><th>항목</th><th>사용 내역</th><th>거래처</th><th>결제수단</th><th>상태</th><th>금액</th><th /></tr></thead><tbody>{visibleExpenses.map((expense) => <tr key={expense.id}><td>{formatDate(expense.expenseDate, false)}</td><td><span className={`cost-type-badge ${expense.costType}`}>{expense.costType === "fixed" ? "고정비" : "변동비"}</span></td><td><span className="category-badge">{expense.category}</span></td><td><strong>{expense.description}</strong><small>{expense.isRecurring ? "매월 자동 등록 설정" : expense.recurringParentId ? "자동 생성된 비용" : expense.memo || "메모 없음"}</small></td><td>{expense.vendor || "-"}</td><td>{expense.paymentMethod}</td><td><span className={`status-badge ${expense.paymentStatus === "paid" ? "active" : "leave"}`}>{expense.paymentStatus === "paid" ? "결제 완료" : "결제 예정"}</span></td><td className="money-cell">{formatMoney(expense.amount)}</td><td><div className="row-actions"><button className="text-button" onClick={() => onEdit(expense)}>수정</button><button className="text-button danger" onClick={() => onDelete(expense.id)}>삭제</button></div></td></tr>)}</tbody></table></div> : <Empty text={costFilter === "all" ? "선택한 달에 등록된 회사 비용이 없습니다." : `선택한 달에 등록된 ${costFilter === "fixed" ? "고정비" : "변동비"}가 없습니다.`} />}
     </section>
   </>;
 }
