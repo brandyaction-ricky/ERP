@@ -59,6 +59,20 @@ type ExpenseRow = {
   recurring_day: number | null;
   recurring_parent_id: number | null;
   recurring_month: string | null;
+  source_card_usage_id: number | null;
+  memo: string;
+  created_at: string;
+};
+
+type RevenueRow = {
+  id: number;
+  revenue_date: string;
+  category: string;
+  description: string;
+  client: string;
+  amount: number;
+  payment_method: string;
+  payment_status: string;
   memo: string;
   created_at: string;
 };
@@ -237,9 +251,56 @@ async function ensureRecurringExpenses(client: SupabaseClient) {
   }
 }
 
+async function syncCardUsageExpense(client: SupabaseClient, usageId: number) {
+  const { data: usage, error: usageError } = await client
+    .from("erp_card_usages")
+    .select("id, company_card_id, evidence_method, transaction_date, merchant, amount, purpose, evidence_status, receipt_url, memo")
+    .eq("id", usageId)
+    .single();
+  if (usageError) throw new Error(usageError.message);
+
+  if (usage.evidence_status !== "confirmed") {
+    const { error } = await client.from("erp_expenses").delete().eq("source_card_usage_id", usageId);
+    if (error) throw new Error(error.message);
+    return;
+  }
+
+  let paymentMethod = "법인카드";
+  if (usage.company_card_id) {
+    const { data: card, error: cardError } = await client
+      .from("erp_company_cards")
+      .select("card_company, card_alias, card_last4")
+      .eq("id", usage.company_card_id)
+      .maybeSingle();
+    if (cardError) throw new Error(cardError.message);
+    if (card) paymentMethod = `${card.card_alias || card.card_company} •••• ${card.card_last4}`;
+  }
+
+  const memoParts = ["카드 사용·증빙에서 자동 연결된 비용입니다.", usage.receipt_url ? `증빙: ${usage.receipt_url}` : "", usage.memo || ""].filter(Boolean);
+  const { error } = await client.from("erp_expenses").upsert({
+    expense_date: usage.transaction_date,
+    cost_type: "variable",
+    category: usage.purpose || "카드값",
+    description: usage.merchant,
+    vendor: usage.merchant,
+    amount: usage.amount,
+    payment_method: paymentMethod,
+    payment_status: "paid",
+    is_recurring: false,
+    recurring_active: false,
+    recurring_day: null,
+    recurring_parent_id: null,
+    recurring_month: null,
+    source_card_usage_id: usage.id,
+    memo: memoParts.join("\n"),
+    updated_at: new Date().toISOString(),
+  }, { onConflict: "source_card_usage_id" });
+  if (error) throw new Error(error.message);
+}
+
 async function readLedger(client: SupabaseClient) {
   await ensureRecurringExpenses(client);
-  const [employeeResult, leaveResult, contractResult, expenseResult, cardResult, accountResult, usageResult] = await Promise.all([
+  const [employeeResult, leaveResult, contractResult, expenseResult, revenueResult, cardResult, accountResult, usageResult] = await Promise.all([
     client.from("erp_employees").select("*").order("name"),
     client
       .from("erp_leave_entries")
@@ -248,13 +309,14 @@ async function readLedger(client: SupabaseClient) {
       .order("id", { ascending: false }),
     client.from("erp_employment_contracts").select("*").order("start_date", { ascending: false }),
     client.from("erp_expenses").select("*").order("expense_date", { ascending: false }).order("id", { ascending: false }),
+    client.from("erp_revenues").select("*").order("revenue_date", { ascending: false }).order("id", { ascending: false }),
     client.from("erp_company_cards").select("*").order("card_company").order("id"),
     client.from("erp_bank_accounts").select("*").order("bank_name").order("id"),
     client.from("erp_card_usages").select("*").order("transaction_date", { ascending: false }).order("id", { ascending: false }),
   ]);
   if (employeeResult.error) throw new Error(employeeResult.error.message);
   if (leaveResult.error) throw new Error(leaveResult.error.message);
-  const schemaReady = !contractResult.error && !expenseResult.error && !cardResult.error && !accountResult.error && !usageResult.error;
+  const schemaReady = !contractResult.error && !expenseResult.error && !revenueResult.error && !cardResult.error && !accountResult.error && !usageResult.error;
 
   const employees = ((employeeResult.data ?? []) as EmployeeRow[]).map((row) => ({
     id: row.id,
@@ -312,6 +374,19 @@ async function readLedger(client: SupabaseClient) {
     recurringDay: row.recurring_day,
     recurringParentId: row.recurring_parent_id,
     recurringMonth: row.recurring_month,
+    sourceCardUsageId: row.source_card_usage_id,
+    memo: row.memo,
+    createdAt: row.created_at,
+  }));
+  const revenues = ((revenueResult.data ?? []) as RevenueRow[]).map((row) => ({
+    id: row.id,
+    revenueDate: row.revenue_date,
+    category: row.category,
+    description: row.description,
+    client: row.client,
+    amount: Number(row.amount),
+    paymentMethod: row.payment_method,
+    paymentStatus: row.payment_status,
     memo: row.memo,
     createdAt: row.created_at,
   }));
@@ -361,7 +436,7 @@ async function readLedger(client: SupabaseClient) {
     memo: row.memo,
     createdAt: row.created_at,
   }));
-  return { employees, entries, contracts, expenses, cards, bankAccounts, cardUsages, schemaReady };
+  return { employees, entries, contracts, expenses, revenues, cards, bankAccounts, cardUsages, schemaReady };
 }
 
 export async function GET() {
@@ -469,6 +544,24 @@ export async function POST(request: Request) {
         memo: String(body.memo ?? "").trim(),
       });
       if (error) throw new Error(error.message);
+    } else if (action === "revenue") {
+      const revenueDate = String(body.revenueDate ?? "");
+      const category = String(body.category ?? "").trim();
+      const description = String(body.description ?? "").trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(revenueDate) || !category || !description) {
+        return fail(null, "매출 필수 정보를 확인해주세요.", 400);
+      }
+      const { error } = await client.from("erp_revenues").insert({
+        revenue_date: revenueDate,
+        category,
+        description,
+        client: String(body.client ?? "").trim(),
+        amount: nonNegativeNumber(body.amount, "매출 금액"),
+        payment_method: String(body.paymentMethod ?? "계좌이체"),
+        payment_status: oneOf(body.paymentStatus, ["received", "expected"], "입금 상태", "received"),
+        memo: String(body.memo ?? "").trim(),
+      });
+      if (error) throw new Error(error.message);
     } else if (action === "card") {
       const cardCompany = String(body.cardCompany ?? "").trim();
       const cardAlias = String(body.cardAlias ?? "").trim();
@@ -521,7 +614,8 @@ export async function POST(request: Request) {
         return fail(null, "거래일·사용처·용도를 확인해주세요.", 400);
       }
       if (evidenceMethod === "corporate-card" && companyCardId === null) return fail(null, "사용한 법인카드를 선택해주세요.", 400);
-      const { error } = await client.from("erp_card_usages").insert({
+      const evidenceStatus = oneOf(body.evidenceStatus, ["missing", "submitted", "confirmed"], "증빙 상태", "missing");
+      const { data: insertedUsage, error } = await client.from("erp_card_usages").insert({
         company_card_id: companyCardId,
         evidence_method: evidenceMethod,
         transaction_date: transactionDate,
@@ -530,12 +624,13 @@ export async function POST(request: Request) {
         requested_amount: nonNegativeNumber(body.requestedAmount, "요청 금액"),
         purpose,
         user_employee_id: optionalInteger(body.userEmployeeId, "사용자"),
-        evidence_status: oneOf(body.evidenceStatus, ["missing", "submitted", "confirmed"], "증빙 상태", "missing"),
+        evidence_status: evidenceStatus,
         due_date: optionalDate(body.dueDate),
         receipt_url: String(body.receiptUrl ?? "").trim(),
         memo: String(body.memo ?? "").trim(),
-      });
+      }).select("id").single();
       if (error) throw new Error(error.message);
+      if (evidenceStatus === "confirmed") await syncCardUsageExpense(client, insertedUsage.id);
     } else {
       return fail(null, "지원하지 않는 요청입니다.", 400);
     }
@@ -615,6 +710,23 @@ export async function PATCH(request: Request) {
         updated_at: new Date().toISOString(),
       }).eq("id", id);
       if (error) throw new Error(error.message);
+    } else if (action === "revenue") {
+      const revenueDate = String(body.revenueDate ?? "");
+      const category = String(body.category ?? "").trim();
+      const description = String(body.description ?? "").trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(revenueDate) || !category || !description) return fail(null, "매출 필수 정보를 확인해주세요.", 400);
+      const { error } = await client.from("erp_revenues").update({
+        revenue_date: revenueDate,
+        category,
+        description,
+        client: String(body.client ?? "").trim(),
+        amount: nonNegativeNumber(body.amount, "매출 금액"),
+        payment_method: String(body.paymentMethod ?? "계좌이체"),
+        payment_status: oneOf(body.paymentStatus, ["received", "expected"], "입금 상태", "received"),
+        memo: String(body.memo ?? "").trim(),
+        updated_at: new Date().toISOString(),
+      }).eq("id", id);
+      if (error) throw new Error(error.message);
     } else if (action === "card") {
       const cardCompany = String(body.cardCompany ?? "").trim();
       const cardAlias = String(body.cardAlias ?? "").trim();
@@ -659,6 +771,7 @@ export async function PATCH(request: Request) {
     } else if (action === "cardUsage") {
       const evidenceMethod = oneOf(body.evidenceMethod, ["corporate-card", "tax-invoice", "cash-receipt", "other"], "증빙 수단", "corporate-card");
       const companyCardId = evidenceMethod === "corporate-card" ? optionalInteger(body.companyCardId, "카드") : null;
+      const evidenceStatus = oneOf(body.evidenceStatus, ["missing", "submitted", "confirmed"], "증빙 상태", "missing");
       const { error } = await client.from("erp_card_usages").update({
         company_card_id: companyCardId,
         evidence_method: evidenceMethod,
@@ -668,13 +781,14 @@ export async function PATCH(request: Request) {
         requested_amount: nonNegativeNumber(body.requestedAmount, "요청 금액"),
         purpose: String(body.purpose ?? "").trim(),
         user_employee_id: optionalInteger(body.userEmployeeId, "사용자"),
-        evidence_status: oneOf(body.evidenceStatus, ["missing", "submitted", "confirmed"], "증빙 상태", "missing"),
+        evidence_status: evidenceStatus,
         due_date: optionalDate(body.dueDate),
         receipt_url: String(body.receiptUrl ?? "").trim(),
         memo: String(body.memo ?? "").trim(),
         updated_at: new Date().toISOString(),
       }).eq("id", id);
       if (error) throw new Error(error.message);
+      await syncCardUsageExpense(client, id);
     } else {
       return fail(null, "지원하지 않는 수정 요청입니다.", 400);
     }
@@ -699,6 +813,8 @@ export async function DELETE(request: Request) {
           ? "erp_employment_contracts"
           : kind === "expense"
             ? "erp_expenses"
+            : kind === "revenue"
+              ? "erp_revenues"
             : kind === "card"
               ? "erp_company_cards"
               : kind === "bankAccount"

@@ -23,9 +23,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .app-shell { min-height: 100vh; }
 
 .topbar { position: sticky; top: 0; z-index: 40; height: 70px; padding: 0 34px; display: flex; align-items: center; gap: 36px; background: rgba(255,255,255,.95); border-bottom: 1px solid var(--line); backdrop-filter: blur(16px); }
-.brand { padding: 0; border: 0; background: transparent; display: flex; align-items: center; gap: 11px; font-size: 16px; font-weight: 900; letter-spacing: -.025em; }
-.brand b { color: var(--brand); }
-.brand-mark { width: 34px; height: 34px; display: grid; place-items: center; color: white; background: var(--brand); border-radius: 5px; font-size: 17px; }
+.brand { padding: 0; border: 0; background: transparent; display: flex; align-items: center; }
+.brand img { display: block; width: 168px; height: auto; object-fit: contain; }
 .desktop-nav { min-width: 0; align-self: stretch; display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
 .desktop-nav::-webkit-scrollbar { display: none; }
 .desktop-nav button { flex: 0 0 auto; position: relative; padding: 0 15px; border: 0; background: transparent; color: #7e7773; font-size: 13px; font-weight: 750; white-space: nowrap; }
@@ -65,6 +64,11 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 
 .workspace { background: white; border: 1px solid var(--line); border-radius: 5px; overflow: hidden; box-shadow: 0 7px 28px rgba(60,38,32,.035); }
 .dashboard-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.dashboard-stats { grid-template-columns: repeat(3, 1fr); }
+.dashboard-overview-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.dashboard-evidence-dot { flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%; background: #a7a09c; }
+.dashboard-evidence-dot.submitted { background: #4c7fbd; }
+.dashboard-evidence-dot.confirmed { background: #3b9b68; }
 .full-panel { grid-column: 1 / -1; }
 .panel { min-height: 330px; }
 .panel-head, .section-head { min-height: 78px; padding: 19px 22px; display: flex; align-items: center; justify-content: space-between; gap: 20px; border-bottom: 1px solid #eeeae8; }
@@ -115,10 +119,12 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .money-cell { color: var(--brand-deep) !important; font-weight: 900; text-align: right; white-space: nowrap; }
 .expense-table { min-width: 1260px; }
 .monthly-expense-workspace { margin-bottom: 14px; }
-.monthly-summary-table { min-width: 680px; }
+.monthly-summary-table { min-width: 900px; }
 .monthly-summary-table tbody tr { cursor: pointer; }
 .monthly-summary-table tbody tr.selected-row { background: #fbf1f1; box-shadow: inset 3px 0 0 var(--brand); }
 .data-table tfoot td { height: 54px; padding: 10px 16px; background: #faf8f7; border-top: 2px solid var(--line); color: #625a56; font-size: 10px; font-weight: 900; }
+.revenue-workspace { margin-top: 14px; }
+.revenue-table { min-width: 1080px; }
 .danger { color: #b64545 !important; }
 
 .financial-summary { margin-bottom: 14px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
@@ -264,6 +270,8 @@ footer p { margin: 0; }
   .admin-badge { display: none; }
   .page, footer { width: calc(100% - 40px); }
   .stat-grid { grid-template-columns: 1fr 1fr; }
+  .dashboard-overview-grid { grid-template-columns: 1fr 1fr; }
+  .dashboard-overview-grid .panel:last-child { grid-column: 1 / -1; }
   .contract-grid { grid-template-columns: 1fr; }
   .asset-management-layout, .evidence-layout { grid-template-columns: 1fr; }
   .asset-detail-panel { min-height: auto; position: static; }
@@ -276,7 +284,8 @@ footer p { margin: 0; }
   .admin-badge { display: none; }
   .page { width: calc(100% - 24px); padding: 30px 0 60px; }
   .intro { align-items: flex-start; }
-  .dashboard-grid { grid-template-columns: 1fr; }
+  .dashboard-grid, .dashboard-overview-grid { grid-template-columns: 1fr; }
+  .dashboard-overview-grid .panel:last-child { grid-column: auto; }
   .full-panel { grid-column: auto; }
   .section-head { align-items: flex-start; flex-direction: column; }
   .section-head .filters { width: 100%; }
@@ -290,7 +299,7 @@ footer p { margin: 0; }
 }
 
 @media (max-width: 520px) {
-  .brand > span:last-child { font-size: 13px; }
+  .brand img { width: 145px; }
   .logout-button { display: none; }
   .intro { display: block; }
   .intro-actions { margin-top: 18px; }
