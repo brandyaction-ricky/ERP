@@ -85,12 +85,21 @@ type Revenue = {
   createdAt: string;
 };
 
-type ERPData = { employees: Employee[]; entries: LeaveEntry[]; contracts: Contract[]; expenses: Expense[]; revenues: Revenue[]; cards: CompanyCard[]; cardUsages: CardUsage[]; schemaReady?: boolean };
+type HRSetting = {
+  id: number;
+  kind: "department" | "position";
+  value: string;
+  sortOrder: number;
+  createdAt: string;
+};
+
+type ERPData = { employees: Employee[]; entries: LeaveEntry[]; contracts: Contract[]; expenses: Expense[]; revenues: Revenue[]; cards: CompanyCard[]; cardUsages: CardUsage[]; hrSettings: HRSetting[]; schemaReady?: boolean };
 type Section = "dashboard" | "employees" | "leave" | "expenses" | "cards" | "evidence";
 type EmployeeTab = "info" | "contract" | "leave";
 
-const EMPTY_DATA: ERPData = { employees: [], entries: [], contracts: [], expenses: [], revenues: [], cards: [], cardUsages: [], schemaReady: true };
+const EMPTY_DATA: ERPData = { employees: [], entries: [], contracts: [], expenses: [], revenues: [], cards: [], cardUsages: [], hrSettings: [], schemaReady: true };
 const DEPARTMENTS = ["콘텐츠팀", "마케팅팀", "디자인팀", "개발팀", "경영지원"];
+const POSITIONS = ["대표", "팀장", "매니저", "사원"];
 const EXPENSE_CATEGORIES: Record<Expense["costType"], string[]> = {
   fixed: ["인건비", "임대료·관리비", "보험료", "소프트웨어·구독료", "통신비", "세금·공과금", "기타 고정비"],
   variable: ["광고비", "카드값", "외주비", "복리후생비", "출장·교통비", "소모품비", "수수료", "기타 변동비"],
@@ -138,6 +147,35 @@ function tenure(joinDate: string) {
 
 function leaveLabel(type: LeaveEntry["leaveType"]) {
   return type === "half-am" ? "오전 반차" : type === "half-pm" ? "오후 반차" : "연차";
+}
+
+function nextBusinessDate(value: string) {
+  const date = new Date(`${value}T12:00:00Z`);
+  do date.setUTCDate(date.getUTCDate() + 1); while (date.getUTCDay() === 0 || date.getUTCDay() === 6);
+  return date.toISOString().slice(0, 10);
+}
+
+function groupLeaveEntries(entries: LeaveEntry[]) {
+  type Group = LeaveEntry & { ids: number[]; startDate: string; endDate: string };
+  const groups: Group[] = [];
+  const sorted = [...entries].sort((a, b) => a.leaveDate.localeCompare(b.leaveDate) || a.id - b.id);
+
+  for (const entry of sorted) {
+    const previous = groups.at(-1);
+    const canJoin = entry.leaveType === "full"
+      && previous?.leaveType === "full"
+      && previous.employeeId === entry.employeeId
+      && previous.note === entry.note
+      && nextBusinessDate(previous.endDate) === entry.leaveDate;
+    if (canJoin && previous) {
+      previous.ids.push(entry.id);
+      previous.endDate = entry.leaveDate;
+      previous.amount += Number(entry.amount);
+    } else {
+      groups.push({ ...entry, amount: Number(entry.amount), ids: [entry.id], startDate: entry.leaveDate, endDate: entry.leaveDate });
+    }
+  }
+  return groups.sort((a, b) => b.endDate.localeCompare(a.endDate) || b.id - a.id);
 }
 
 function contractLabel(type: Contract["contractType"]) {
@@ -239,6 +277,7 @@ export default function Home() {
   const [contractModal, setContractModal] = useState(false);
   const [expenseModal, setExpenseModal] = useState(false);
   const [revenueModal, setRevenueModal] = useState(false);
+  const [hrSettingsModal, setHRSettingsModal] = useState(false);
   const [employeeForm, setEmployeeForm] = useState(employeeDraft());
   const [leaveForm, setLeaveForm] = useState({ employeeId: "", leaveStartDate: today, leaveEndDate: today, leaveType: "full" as LeaveEntry["leaveType"], note: "" });
   const [contractForm, setContractForm] = useState(contractDraft(0));
@@ -268,6 +307,16 @@ export default function Home() {
   }, [toast]);
 
   const activeEmployees = useMemo(() => data.employees.filter((employee) => employee.employmentStatus === "active"), [data.employees]);
+  const departmentOptions = useMemo(() => Array.from(new Set([
+    ...data.hrSettings.filter((setting) => setting.kind === "department").sort((a, b) => a.sortOrder - b.sortOrder).map((setting) => setting.value),
+    ...data.employees.map((employee) => employee.department),
+    ...DEPARTMENTS,
+  ].filter(Boolean))), [data.hrSettings, data.employees]);
+  const positionOptions = useMemo(() => Array.from(new Set([
+    ...data.hrSettings.filter((setting) => setting.kind === "position").sort((a, b) => a.sortOrder - b.sortOrder).map((setting) => setting.value),
+    ...data.employees.map((employee) => employee.position),
+    ...POSITIONS,
+  ].filter(Boolean))), [data.hrSettings, data.employees]);
   const yearEntries = useMemo(() => data.entries.filter((entry) => Number(entry.leaveDate.slice(0, 4)) === selectedYear), [data.entries, selectedYear]);
   const selectedEmployee = data.employees.find((employee) => employee.id === selectedEmployeeId) ?? null;
   const selectedEmployeeContracts = data.contracts.filter((contract) => contract.employeeId === selectedEmployeeId);
@@ -319,7 +368,7 @@ export default function Home() {
     }
   }
 
-  async function remove(kind: "employee" | "entry" | "contract" | "expense" | "revenue" | "card" | "cardUsage", id: number) {
+  async function remove(kind: "employee" | "entry" | "contract" | "expense" | "revenue" | "card" | "cardUsage" | "hrSetting", id: number) {
     const message = kind === "employee" ? "직원과 연결된 계약·연차 기록을 모두 삭제할까요?" : "선택한 기록을 삭제할까요?";
     if (!window.confirm(message)) return;
     setSaving(true);
@@ -337,9 +386,36 @@ export default function Home() {
     }
   }
 
+  async function removeLeaveGroup(ids: number[]) {
+    if (!window.confirm(ids.length > 1 ? `이 기간의 연차 ${ids.length}일을 모두 삭제할까요?` : "선택한 연차 기록을 삭제할까요?")) return;
+    setSaving(true);
+    try {
+      const response = await fetch(`/api/ledger?kind=entries&ids=${ids.join(",")}`, { method: "DELETE" });
+      const result = (await response.json()) as ERPData & { error?: string };
+      if (!response.ok) throw new Error(result.error || "삭제하지 못했습니다.");
+      setData(result);
+      setToast("연차 사용 내역이 삭제되었습니다.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "삭제하지 못했습니다.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   function openEmployee(employee?: Employee) {
-    setEmployeeForm(employeeDraft(employee));
+    const draft = employeeDraft(employee);
+    if (!employee) {
+      draft.department = departmentOptions[0] ?? "";
+      draft.position = positionOptions[0] ?? "";
+    }
+    setEmployeeForm(draft);
     setEmployeeModal(true);
+  }
+
+  async function addHRSetting(kind: HRSetting["kind"], value: string) {
+    const saved = await save({ action: "hrSetting", kind, value });
+    if (saved) setToast(`${kind === "department" ? "부서" : "직책"}가 추가되었습니다.`);
+    return saved;
   }
 
   function openLeave(employeeId?: number) {
@@ -452,7 +528,7 @@ export default function Home() {
           </div>
           <div className="intro-actions">
             {selectedEmployee && <button className="secondary-button" onClick={() => setSelectedEmployeeId(null)}>← 직원 목록</button>}
-            {section === "employees" && <button className="primary-button" onClick={() => openEmployee()}>+ 직원 등록</button>}
+            {section === "employees" && <><button className="secondary-button" onClick={() => setHRSettingsModal(true)}>부서·직책 설정</button><button className="primary-button" onClick={() => openEmployee()}>+ 직원 등록</button></>}
             {section === "leave" && <button className="primary-button" onClick={() => openLeave()}>+ 연차 등록</button>}
             {section === "expenses" && <><button className="secondary-button" onClick={() => openRevenue()}>+ 매출 등록</button><button className="primary-button" onClick={() => openExpense()}>+ 비용 등록</button></>}
           </div>
@@ -484,6 +560,7 @@ export default function Home() {
                 employees={employeeRows}
                 search={search}
                 department={department}
+                departments={departmentOptions}
                 onSearch={setSearch}
                 onDepartment={setDepartment}
                 onView={viewEmployee}
@@ -510,7 +587,7 @@ export default function Home() {
             )}
 
             {section === "leave" && (
-              <LeaveManagement rows={leaveRows} entries={yearEntries} year={selectedYear} onYear={setSelectedYear} onLeave={openLeave} onEmployee={viewEmployee} onDelete={(id) => remove("entry", id)} />
+              <LeaveManagement rows={leaveRows} entries={yearEntries} year={selectedYear} onYear={setSelectedYear} onLeave={openLeave} onEmployee={viewEmployee} onDelete={removeLeaveGroup} />
             )}
 
             {section === "expenses" && (
@@ -534,7 +611,7 @@ export default function Home() {
         <Modal title={employeeForm.id ? "직원 정보 수정" : "새 직원 등록"} description="운영에 필요한 기본 인사 정보를 입력합니다." onClose={() => setEmployeeModal(false)}>
           <form className="modal-form" onSubmit={submitEmployee}>
             <div className="form-grid two"><Field label="이름 *"><input required value={employeeForm.name} onChange={(e) => setEmployeeForm({ ...employeeForm, name: e.target.value })} /></Field><Field label="재직 상태"><select value={employeeForm.employmentStatus} onChange={(e) => setEmployeeForm({ ...employeeForm, employmentStatus: e.target.value as Employee["employmentStatus"] })}><option value="active">재직</option><option value="leave">휴직</option><option value="retired">퇴사</option></select></Field></div>
-            <div className="form-grid two"><Field label="부서 *"><select value={employeeForm.department} onChange={(e) => setEmployeeForm({ ...employeeForm, department: e.target.value })}>{DEPARTMENTS.map((item) => <option key={item}>{item}</option>)}</select></Field><Field label="직책·직급 *"><input required value={employeeForm.position} onChange={(e) => setEmployeeForm({ ...employeeForm, position: e.target.value })} /></Field></div>
+            <div className="form-grid two"><Field label="부서 *"><select value={employeeForm.department} onChange={(e) => setEmployeeForm({ ...employeeForm, department: e.target.value })}>{departmentOptions.map((item) => <option key={item}>{item}</option>)}</select></Field><Field label="직책·직급 *"><select required value={employeeForm.position} onChange={(e) => setEmployeeForm({ ...employeeForm, position: e.target.value })}>{positionOptions.map((item) => <option key={item}>{item}</option>)}</select></Field></div>
             <div className="form-grid two"><Field label="입사일 *"><input required type="date" value={employeeForm.joinDate} onChange={(e) => setEmployeeForm({ ...employeeForm, joinDate: e.target.value })} /></Field><Field label="생년월일"><input type="date" value={employeeForm.birthDate} onChange={(e) => setEmployeeForm({ ...employeeForm, birthDate: e.target.value })} /></Field></div>
             <div className="form-grid two"><Field label="회사 이메일"><input type="email" value={employeeForm.email} onChange={(e) => setEmployeeForm({ ...employeeForm, email: e.target.value })} /></Field><Field label="휴대전화"><input value={employeeForm.phone} onChange={(e) => setEmployeeForm({ ...employeeForm, phone: e.target.value })} /></Field></div>
             <Field label="주소"><input value={employeeForm.address} onChange={(e) => setEmployeeForm({ ...employeeForm, address: e.target.value })} /></Field>
@@ -542,6 +619,12 @@ export default function Home() {
             <Field label="인사 메모"><textarea value={employeeForm.memo} onChange={(e) => setEmployeeForm({ ...employeeForm, memo: e.target.value })} /></Field>
             <ModalActions saving={saving} onCancel={() => setEmployeeModal(false)} label="직원 정보 저장" />
           </form>
+        </Modal>
+      )}
+
+      {hrSettingsModal && (
+        <Modal title="부서·직책 설정" description="직원 등록과 검색에 사용할 부서와 직책·직급을 관리합니다." onClose={() => setHRSettingsModal(false)}>
+          <HRSettingsManager settings={data.hrSettings} employees={data.employees} saving={saving} onAdd={addHRSetting} onDelete={(id) => remove("hrSetting", id)} />
         </Modal>
       )}
 
@@ -636,9 +719,9 @@ function Dashboard({ activeCount, upcomingCount, monthlyExpense, monthlyRevenue,
   </>;
 }
 
-function EmployeeList({ employees, search, department, onSearch, onDepartment, onView, onEdit }: { employees: Employee[]; search: string; department: string; onSearch: (value: string) => void; onDepartment: (value: string) => void; onView: (employee: Employee) => void; onEdit: (employee: Employee) => void }) {
+function EmployeeList({ employees, search, department, departments, onSearch, onDepartment, onView, onEdit }: { employees: Employee[]; search: string; department: string; departments: string[]; onSearch: (value: string) => void; onDepartment: (value: string) => void; onView: (employee: Employee) => void; onEdit: (employee: Employee) => void }) {
   return <section className="workspace">
-    <div className="section-head"><div><h2>전체 직원</h2><p>직원을 선택하면 기본 정보와 계약·연차를 확인할 수 있습니다.</p></div><div className="filters"><input className="search-input" value={search} onChange={(e) => onSearch(e.target.value)} placeholder="이름·직책·이메일 검색" /><select value={department} onChange={(e) => onDepartment(e.target.value)}><option>전체 팀</option>{DEPARTMENTS.map((item) => <option key={item}>{item}</option>)}</select></div></div>
+    <div className="section-head"><div><h2>전체 직원</h2><p>직원을 선택하면 기본 정보와 계약·연차를 확인할 수 있습니다.</p></div><div className="filters"><input className="search-input" value={search} onChange={(e) => onSearch(e.target.value)} placeholder="이름·직책·이메일 검색" /><select value={department} onChange={(e) => onDepartment(e.target.value)}><option>전체 팀</option>{departments.map((item) => <option key={item}>{item}</option>)}</select></div></div>
     {employees.length ? <div className="table-wrap"><table className="data-table employee-table"><thead><tr><th>직원</th><th>부서·직책</th><th>입사 정보</th><th>연락처</th><th>상태</th><th /></tr></thead><tbody>{employees.map((employee) => <tr key={employee.id} onClick={() => onView(employee)}><td><div className="person"><span className="avatar">{initials(employee.name)}</span><div><strong>{employee.name}</strong><small>{employee.email || "이메일 미등록"}</small></div></div></td><td><strong>{employee.department}</strong><small>{employee.position}</small></td><td><strong>{formatDate(employee.joinDate)}</strong><small>{tenure(employee.joinDate)}</small></td><td><strong>{employee.phone || "미등록"}</strong><small>{employee.emergencyContact ? `비상 ${employee.emergencyContact}` : "비상 연락처 미등록"}</small></td><td><span className={`status-badge ${employee.employmentStatus}`}>{employeeStatusLabel(employee.employmentStatus)}</span></td><td><button className="text-button" onClick={(event) => { event.stopPropagation(); onEdit(employee); }}>수정</button></td></tr>)}</tbody></table></div> : <Empty text="조건에 맞는 직원이 없습니다." />}
   </section>;
 }
@@ -655,9 +738,26 @@ function EmployeeDetail({ employee, tab, contracts, entries, year, onTab, onYear
   </section>;
 }
 
-function LeaveManagement({ rows, entries, year, onYear, onLeave, onEmployee, onDelete }: { rows: Array<{ employee: Employee; accrued: number; used: number; remaining: number; entries: LeaveEntry[] }>; entries: LeaveEntry[]; year: number; onYear: (year: number) => void; onLeave: (employeeId?: number) => void; onEmployee: (employee: Employee) => void; onDelete: (id: number) => void }) {
+function LeaveManagement({ rows, entries, year, onYear, onLeave, onEmployee, onDelete }: { rows: Array<{ employee: Employee; accrued: number; used: number; remaining: number; entries: LeaveEntry[] }>; entries: LeaveEntry[]; year: number; onYear: (year: number) => void; onLeave: (employeeId?: number) => void; onEmployee: (employee: Employee) => void; onDelete: (ids: number[]) => void }) {
   const [view, setView] = useState<"balance" | "history">("balance");
-  return <section className="workspace"><div className="section-head"><div><h2>{year}년 연차 대장</h2><p>연도별 연차 발생과 사용 내역을 관리합니다.</p></div><div className="filters"><div className="segment"><button className={view === "balance" ? "active" : ""} onClick={() => setView("balance")}>직원별 현황</button><button className={view === "history" ? "active" : ""} onClick={() => setView("history")}>사용 내역</button></div><select value={year} onChange={(e) => onYear(Number(e.target.value))}>{[year - 1, year, year + 1].map((item) => <option key={item}>{item}년</option>)}</select></div></div>{view === "balance" ? <div className="table-wrap"><table className="data-table leave-table"><thead><tr><th>직원</th><th>발생</th><th>사용</th><th>잔여</th><th>최근 사용</th><th /></tr></thead><tbody>{rows.map(({ employee, accrued, used, remaining, entries: employeeEntries }) => <tr key={employee.id}><td><button className="person person-link" onClick={() => onEmployee(employee)}><span className="avatar">{initials(employee.name)}</span><div><strong>{employee.name}</strong><small>{employee.department} · {employee.position}</small></div></button></td><td>{accrued}일</td><td>{used}일</td><td><span className={`remaining ${remaining < 3 ? "low" : ""}`}>{remaining}일</span></td><td>{employeeEntries[0] ? `${formatDate(employeeEntries[0].leaveDate)} · ${leaveLabel(employeeEntries[0].leaveType)}` : "사용 내역 없음"}</td><td><button className="secondary-button compact" onClick={() => onLeave(employee.id)}>등록</button></td></tr>)}</tbody></table></div> : entries.length ? <div className="table-wrap"><table className="data-table"><thead><tr><th>사용일</th><th>직원</th><th>유형</th><th>차감</th><th>메모</th><th /></tr></thead><tbody>{entries.map((entry) => <tr key={entry.id}><td>{formatDate(entry.leaveDate)}</td><td><strong>{entry.employeeName}</strong></td><td>{leaveLabel(entry.leaveType)}</td><td>{entry.amount}일</td><td>{entry.note || "-"}</td><td><button className="text-button danger" onClick={() => onDelete(entry.id)}>삭제</button></td></tr>)}</tbody></table></div> : <Empty text="선택한 연도의 연차 사용 내역이 없습니다." />}</section>;
+  const groupedEntries = useMemo(() => groupLeaveEntries(entries), [entries]);
+  return <section className="workspace"><div className="section-head"><div><h2>{year}년 연차 대장</h2><p>연도별 연차 발생과 사용 내역을 관리합니다.</p></div><div className="filters"><div className="segment"><button className={view === "balance" ? "active" : ""} onClick={() => setView("balance")}>직원별 현황</button><button className={view === "history" ? "active" : ""} onClick={() => setView("history")}>사용 내역</button></div><select value={year} onChange={(e) => onYear(Number(e.target.value))}>{[year - 1, year, year + 1].map((item) => <option key={item}>{item}년</option>)}</select></div></div>{view === "balance" ? <div className="table-wrap"><table className="data-table leave-table"><thead><tr><th>직원</th><th>발생</th><th>사용</th><th>잔여</th><th>최근 사용</th><th /></tr></thead><tbody>{rows.map(({ employee, accrued, used, remaining, entries: employeeEntries }) => <tr key={employee.id}><td><button className="person person-link" onClick={() => onEmployee(employee)}><span className="avatar">{initials(employee.name)}</span><div><strong>{employee.name}</strong><small>{employee.department} · {employee.position}</small></div></button></td><td>{accrued}일</td><td>{used}일</td><td><span className={`remaining ${remaining < 3 ? "low" : ""}`}>{remaining}일</span></td><td>{employeeEntries[0] ? `${formatDate(employeeEntries[0].leaveDate)} · ${leaveLabel(employeeEntries[0].leaveType)}` : "사용 내역 없음"}</td><td><button className="secondary-button compact" onClick={() => onLeave(employee.id)}>등록</button></td></tr>)}</tbody></table></div> : groupedEntries.length ? <div className="table-wrap"><table className="data-table"><thead><tr><th>사용 기간</th><th>직원</th><th>유형</th><th>차감</th><th>메모</th><th /></tr></thead><tbody>{groupedEntries.map((entry) => <tr key={entry.ids.join("-")}><td>{entry.startDate === entry.endDate ? formatDate(entry.startDate) : `${formatDate(entry.startDate)}~${formatDate(entry.endDate, false)}`}</td><td><strong>{entry.employeeName}</strong></td><td>{leaveLabel(entry.leaveType)}</td><td>{entry.amount}일</td><td>{entry.note || "-"}</td><td><button className="text-button danger" onClick={() => onDelete(entry.ids)}>삭제</button></td></tr>)}</tbody></table></div> : <Empty text="선택한 연도의 연차 사용 내역이 없습니다." />}</section>;
+}
+
+function HRSettingsManager({ settings, employees, saving, onAdd, onDelete }: { settings: HRSetting[]; employees: Employee[]; saving: boolean; onAdd: (kind: HRSetting["kind"], value: string) => Promise<boolean>; onDelete: (id: number) => void }) {
+  const [kind, setKind] = useState<HRSetting["kind"]>("department");
+  const [value, setValue] = useState("");
+  const visible = settings.filter((setting) => setting.kind === kind).sort((a, b) => a.sortOrder - b.sortOrder);
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (await onAdd(kind, value.trim())) setValue("");
+  }
+  return <div className="settings-manager">
+    <div className="segment settings-tabs"><button className={kind === "department" ? "active" : ""} onClick={() => setKind("department")}>부서</button><button className={kind === "position" ? "active" : ""} onClick={() => setKind("position")}>직책·직급</button></div>
+    <form className="settings-add" onSubmit={submit}><input required maxLength={50} value={value} onChange={(event) => setValue(event.target.value)} placeholder={kind === "department" ? "새 부서명" : "새 직책·직급명"} /><button className="primary-button compact" disabled={saving}>추가</button></form>
+    <div className="settings-list">{visible.length ? visible.map((setting) => { const usageCount = employees.filter((employee) => (kind === "department" ? employee.department : employee.position) === setting.value).length; return <div className="settings-row" key={setting.id}><div><strong>{setting.value}</strong><small>{usageCount ? `직원 ${usageCount}명 사용 중` : "사용 직원 없음"}</small></div><button className="text-button danger" disabled={saving || usageCount > 0} onClick={() => onDelete(setting.id)}>삭제</button></div>; }) : <div className="settings-empty">등록된 항목이 없습니다.</div>}</div>
+    <p className="settings-note">직원이 사용 중인 항목은 다른 항목으로 변경한 뒤 삭제할 수 있습니다.</p>
+  </div>;
 }
 
 function ExpenseManagement({ expenses, allExpenses, revenues, allRevenues, recurringExpenses, month, monthlyTotal, monthlyRevenueTotal, annualTotal, onMonth, onEdit, onDelete, onEditRevenue, onDeleteRevenue }: { expenses: Expense[]; allExpenses: Expense[]; revenues: Revenue[]; allRevenues: Revenue[]; recurringExpenses: Expense[]; month: string; monthlyTotal: number; monthlyRevenueTotal: number; annualTotal: number; onMonth: (month: string) => void; onEdit: (expense: Expense) => void; onDelete: (id: number) => void; onEditRevenue: (revenue: Revenue) => void; onDeleteRevenue: (id: number) => void }) {

@@ -126,6 +126,14 @@ type CardUsageRow = {
   created_at: string;
 };
 
+type HRSettingRow = {
+  id: number;
+  kind: string;
+  value: string;
+  sort_order: number;
+  created_at: string;
+};
+
 function database() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -300,7 +308,7 @@ async function syncCardUsageExpense(client: SupabaseClient, usageId: number) {
 
 async function readLedger(client: SupabaseClient) {
   await ensureRecurringExpenses(client);
-  const [employeeResult, leaveResult, contractResult, expenseResult, revenueResult, cardResult, accountResult, usageResult] = await Promise.all([
+  const [employeeResult, leaveResult, contractResult, expenseResult, revenueResult, cardResult, accountResult, usageResult, settingResult] = await Promise.all([
     client.from("erp_employees").select("*").order("name"),
     client
       .from("erp_leave_entries")
@@ -313,10 +321,11 @@ async function readLedger(client: SupabaseClient) {
     client.from("erp_company_cards").select("*").order("card_company").order("id"),
     client.from("erp_bank_accounts").select("*").order("bank_name").order("id"),
     client.from("erp_card_usages").select("*").order("transaction_date", { ascending: false }).order("id", { ascending: false }),
+    client.from("erp_hr_settings").select("*").order("kind").order("sort_order").order("value"),
   ]);
   if (employeeResult.error) throw new Error(employeeResult.error.message);
   if (leaveResult.error) throw new Error(leaveResult.error.message);
-  const schemaReady = !contractResult.error && !expenseResult.error && !revenueResult.error && !cardResult.error && !accountResult.error && !usageResult.error;
+  const schemaReady = !contractResult.error && !expenseResult.error && !revenueResult.error && !cardResult.error && !accountResult.error && !usageResult.error && !settingResult.error;
 
   const employees = ((employeeResult.data ?? []) as EmployeeRow[]).map((row) => ({
     id: row.id,
@@ -436,7 +445,14 @@ async function readLedger(client: SupabaseClient) {
     memo: row.memo,
     createdAt: row.created_at,
   }));
-  return { employees, entries, contracts, expenses, revenues, cards, bankAccounts, cardUsages, schemaReady };
+  const hrSettings = ((settingResult.data ?? []) as HRSettingRow[]).map((row) => ({
+    id: row.id,
+    kind: row.kind,
+    value: row.value,
+    sortOrder: row.sort_order,
+    createdAt: row.created_at,
+  }));
+  return { employees, entries, contracts, expenses, revenues, cards, bankAccounts, cardUsages, hrSettings, schemaReady };
 }
 
 export async function GET() {
@@ -631,6 +647,14 @@ export async function POST(request: Request) {
       }).select("id").single();
       if (error) throw new Error(error.message);
       if (evidenceStatus === "confirmed") await syncCardUsageExpense(client, insertedUsage.id);
+    } else if (action === "hrSetting") {
+      const kind = oneOf(body.kind, ["department", "position"], "설정 구분", "department");
+      const value = String(body.value ?? "").trim();
+      if (!value || value.length > 50) return fail(null, "부서·직책 이름은 1~50자로 입력해주세요.", 400);
+      const { data: lastSetting } = await client.from("erp_hr_settings").select("sort_order").eq("kind", kind).order("sort_order", { ascending: false }).limit(1).maybeSingle();
+      const { error } = await client.from("erp_hr_settings").insert({ kind, value, sort_order: Number(lastSetting?.sort_order ?? 0) + 10 });
+      if (error?.code === "23505") return fail(null, "이미 등록된 항목입니다.", 409);
+      if (error) throw new Error(error.message);
     } else {
       return fail(null, "지원하지 않는 요청입니다.", 400);
     }
@@ -803,8 +827,24 @@ export async function DELETE(request: Request) {
     const client = database();
     const url = new URL(request.url);
     const kind = url.searchParams.get("kind");
+    if (kind === "entries") {
+      const ids = String(url.searchParams.get("ids") ?? "").split(",").map(Number).filter(Number.isInteger);
+      if (!ids.length || ids.length > 366) return fail(null, "삭제할 연차 기간을 확인해주세요.", 400);
+      const { error } = await client.from("erp_leave_entries").delete().in("id", ids);
+      if (error) throw new Error(error.message);
+      return Response.json(await readLedger(client));
+    }
     const id = Number(url.searchParams.get("id"));
     if (!Number.isInteger(id)) return fail(null, "삭제 대상을 확인해주세요.", 400);
+    if (kind === "hrSetting") {
+      const { data: setting, error: settingError } = await client.from("erp_hr_settings").select("kind, value").eq("id", id).maybeSingle();
+      if (settingError) throw new Error(settingError.message);
+      if (!setting) return fail(null, "삭제할 설정을 찾지 못했습니다.", 404);
+      const column = setting.kind === "department" ? "department" : "position";
+      const { count, error: countError } = await client.from("erp_employees").select("id", { count: "exact", head: true }).eq(column, setting.value);
+      if (countError) throw new Error(countError.message);
+      if ((count ?? 0) > 0) return fail(null, `현재 직원이 사용 중인 ${setting.kind === "department" ? "부서" : "직책"}은 삭제할 수 없습니다.`, 409);
+    }
     const table = kind === "entry"
       ? "erp_leave_entries"
       : kind === "employee"
@@ -821,6 +861,8 @@ export async function DELETE(request: Request) {
                 ? "erp_bank_accounts"
                 : kind === "cardUsage"
                   ? "erp_card_usages"
+                : kind === "hrSetting"
+                  ? "erp_hr_settings"
             : "";
     if (!table) return fail(null, "삭제 대상을 확인해주세요.", 400);
     const { error } = await client.from(table).delete().eq("id", id);
