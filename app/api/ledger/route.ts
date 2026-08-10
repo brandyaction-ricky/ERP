@@ -47,6 +47,7 @@ type ContractRow = {
 type ExpenseRow = {
   id: number;
   expense_date: string;
+  cost_type: string;
   category: string;
   description: string;
   vendor: string;
@@ -82,6 +83,12 @@ function nonNegativeNumber(value: unknown, label: string) {
   const number = Number(value);
   if (!Number.isFinite(number) || number < 0) throw new Error(`${label}을(를) 확인해주세요.`);
   return number;
+}
+
+function expenseCostType(value: unknown) {
+  const costType = String(value ?? "variable");
+  if (costType !== "fixed" && costType !== "variable") throw new Error("비용 구분을 확인해주세요.");
+  return costType;
 }
 
 async function readLedger(client: SupabaseClient) {
@@ -143,6 +150,7 @@ async function readLedger(client: SupabaseClient) {
   const expenses = ((expenseResult.data ?? []) as ExpenseRow[]).map((row) => ({
     id: row.id,
     expenseDate: row.expense_date,
+    costType: row.cost_type,
     category: row.category,
     description: row.description,
     vendor: row.vendor,
@@ -240,6 +248,7 @@ export async function POST(request: Request) {
       }
       const { error } = await client.from("erp_expenses").insert({
         expense_date: expenseDate,
+        cost_type: expenseCostType(body.costType),
         category,
         description,
         vendor: String(body.vendor ?? "").trim(),
@@ -312,6 +321,7 @@ export async function PATCH(request: Request) {
     } else if (action === "expense") {
       const { error } = await client.from("erp_expenses").update({
         expense_date: String(body.expenseDate ?? ""),
+        cost_type: expenseCostType(body.costType),
         category: String(body.category ?? "").trim(),
         description: String(body.description ?? "").trim(),
         vendor: String(body.vendor ?? "").trim(),
