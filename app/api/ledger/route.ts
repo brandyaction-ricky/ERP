@@ -63,6 +63,55 @@ type ExpenseRow = {
   created_at: string;
 };
 
+type CompanyCardRow = {
+  id: number;
+  card_company: string;
+  card_name: string;
+  card_alias: string;
+  card_last4: string;
+  holder_name: string;
+  credit_limit: number;
+  status: string;
+  issued_date: string | null;
+  expiry_month: string | null;
+  responsible_employee_id: number | null;
+  memo: string;
+  created_at: string;
+};
+
+type BankAccountRow = {
+  id: number;
+  bank_name: string;
+  account_name: string;
+  account_alias: string;
+  account_number: string;
+  account_type: string;
+  balance: number;
+  status: string;
+  opened_date: string | null;
+  responsible_employee_id: number | null;
+  purpose: string;
+  memo: string;
+  created_at: string;
+};
+
+type CardUsageRow = {
+  id: number;
+  company_card_id: number | null;
+  evidence_method: string;
+  transaction_date: string;
+  merchant: string;
+  amount: number;
+  requested_amount: number;
+  purpose: string;
+  user_employee_id: number | null;
+  evidence_status: string;
+  due_date: string | null;
+  receipt_url: string;
+  memo: string;
+  created_at: string;
+};
+
 function database() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -88,6 +137,26 @@ function nonNegativeNumber(value: unknown, label: string) {
   const number = Number(value);
   if (!Number.isFinite(number) || number < 0) throw new Error(`${label}을(를) 확인해주세요.`);
   return number;
+}
+
+function finiteNumber(value: unknown, label: string) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) throw new Error(`${label}을(를) 확인해주세요.`);
+  return number;
+}
+
+function optionalInteger(value: unknown, label = "담당자") {
+  const text = String(value ?? "").trim();
+  if (!text) return null;
+  const number = Number(text);
+  if (!Number.isInteger(number) || number < 1) throw new Error(`${label}을(를) 확인해주세요.`);
+  return number;
+}
+
+function oneOf(value: unknown, allowed: string[], label: string, fallback: string) {
+  const text = String(value ?? fallback);
+  if (!allowed.includes(text)) throw new Error(`${label}을(를) 확인해주세요.`);
+  return text;
 }
 
 function expenseCostType(value: unknown) {
@@ -155,7 +224,7 @@ async function ensureRecurringExpenses(client: SupabaseClient) {
 
 async function readLedger(client: SupabaseClient) {
   await ensureRecurringExpenses(client);
-  const [employeeResult, leaveResult, contractResult, expenseResult] = await Promise.all([
+  const [employeeResult, leaveResult, contractResult, expenseResult, cardResult, accountResult, usageResult] = await Promise.all([
     client.from("erp_employees").select("*").order("name"),
     client
       .from("erp_leave_entries")
@@ -164,10 +233,13 @@ async function readLedger(client: SupabaseClient) {
       .order("id", { ascending: false }),
     client.from("erp_employment_contracts").select("*").order("start_date", { ascending: false }),
     client.from("erp_expenses").select("*").order("expense_date", { ascending: false }).order("id", { ascending: false }),
+    client.from("erp_company_cards").select("*").order("card_company").order("id"),
+    client.from("erp_bank_accounts").select("*").order("bank_name").order("id"),
+    client.from("erp_card_usages").select("*").order("transaction_date", { ascending: false }).order("id", { ascending: false }),
   ]);
   if (employeeResult.error) throw new Error(employeeResult.error.message);
   if (leaveResult.error) throw new Error(leaveResult.error.message);
-  const schemaReady = !contractResult.error && !expenseResult.error;
+  const schemaReady = !contractResult.error && !expenseResult.error && !cardResult.error && !accountResult.error && !usageResult.error;
 
   const employees = ((employeeResult.data ?? []) as EmployeeRow[]).map((row) => ({
     id: row.id,
@@ -228,7 +300,53 @@ async function readLedger(client: SupabaseClient) {
     memo: row.memo,
     createdAt: row.created_at,
   }));
-  return { employees, entries, contracts, expenses, schemaReady };
+  const cards = ((cardResult.data ?? []) as CompanyCardRow[]).map((row) => ({
+    id: row.id,
+    cardCompany: row.card_company,
+    cardName: row.card_name,
+    cardAlias: row.card_alias,
+    cardLast4: row.card_last4,
+    holderName: row.holder_name,
+    creditLimit: Number(row.credit_limit),
+    status: row.status,
+    issuedDate: row.issued_date,
+    expiryMonth: row.expiry_month,
+    responsibleEmployeeId: row.responsible_employee_id,
+    memo: row.memo,
+    createdAt: row.created_at,
+  }));
+  const bankAccounts = ((accountResult.data ?? []) as BankAccountRow[]).map((row) => ({
+    id: row.id,
+    bankName: row.bank_name,
+    accountName: row.account_name,
+    accountAlias: row.account_alias,
+    accountNumber: row.account_number,
+    accountType: row.account_type,
+    balance: Number(row.balance),
+    status: row.status,
+    openedDate: row.opened_date,
+    responsibleEmployeeId: row.responsible_employee_id,
+    purpose: row.purpose,
+    memo: row.memo,
+    createdAt: row.created_at,
+  }));
+  const cardUsages = ((usageResult.data ?? []) as CardUsageRow[]).map((row) => ({
+    id: row.id,
+    companyCardId: row.company_card_id,
+    evidenceMethod: row.evidence_method,
+    transactionDate: row.transaction_date,
+    merchant: row.merchant,
+    amount: Number(row.amount),
+    requestedAmount: Number(row.requested_amount),
+    purpose: row.purpose,
+    userEmployeeId: row.user_employee_id,
+    evidenceStatus: row.evidence_status,
+    dueDate: row.due_date,
+    receiptUrl: row.receipt_url,
+    memo: row.memo,
+    createdAt: row.created_at,
+  }));
+  return { employees, entries, contracts, expenses, cards, bankAccounts, cardUsages, schemaReady };
 }
 
 export async function GET() {
@@ -333,6 +451,73 @@ export async function POST(request: Request) {
         memo: String(body.memo ?? "").trim(),
       });
       if (error) throw new Error(error.message);
+    } else if (action === "card") {
+      const cardCompany = String(body.cardCompany ?? "").trim();
+      const cardAlias = String(body.cardAlias ?? "").trim();
+      const cardLast4 = String(body.cardLast4 ?? "").replace(/\D/g, "");
+      const expiryMonth = String(body.expiryMonth ?? "").trim();
+      if (!cardCompany || !cardAlias || !/^\d{4}$/.test(cardLast4)) {
+        return fail(null, "카드사·별칭·끝 4자리를 확인해주세요.", 400);
+      }
+      if (expiryMonth && !/^\d{4}-\d{2}$/.test(expiryMonth)) return fail(null, "카드 유효기간을 확인해주세요.", 400);
+      const { error } = await client.from("erp_company_cards").insert({
+        card_company: cardCompany,
+        card_name: String(body.cardName ?? "").trim(),
+        card_alias: cardAlias,
+        card_last4: cardLast4,
+        holder_name: String(body.holderName ?? "").trim(),
+        credit_limit: nonNegativeNumber(body.creditLimit, "카드 한도"),
+        status: oneOf(body.status, ["active", "inactive"], "카드 상태", "active"),
+        issued_date: optionalDate(body.issuedDate),
+        expiry_month: expiryMonth || null,
+        responsible_employee_id: optionalInteger(body.responsibleEmployeeId),
+        memo: String(body.memo ?? "").trim(),
+      });
+      if (error) throw new Error(error.message);
+    } else if (action === "bankAccount") {
+      const bankName = String(body.bankName ?? "").trim();
+      const accountAlias = String(body.accountAlias ?? "").trim();
+      const accountNumber = String(body.accountNumber ?? "").trim();
+      if (!bankName || !accountAlias || !accountNumber) return fail(null, "은행·통장 별칭·계좌번호를 확인해주세요.", 400);
+      const { error } = await client.from("erp_bank_accounts").insert({
+        bank_name: bankName,
+        account_name: String(body.accountName ?? "").trim(),
+        account_alias: accountAlias,
+        account_number: accountNumber,
+        account_type: oneOf(body.accountType, ["checking", "savings", "loan", "other"], "통장 유형", "checking"),
+        balance: finiteNumber(body.balance, "현재 잔액"),
+        status: oneOf(body.status, ["active", "inactive"], "통장 상태", "active"),
+        opened_date: optionalDate(body.openedDate),
+        responsible_employee_id: optionalInteger(body.responsibleEmployeeId),
+        purpose: String(body.purpose ?? "").trim(),
+        memo: String(body.memo ?? "").trim(),
+      });
+      if (error) throw new Error(error.message);
+    } else if (action === "cardUsage") {
+      const transactionDate = String(body.transactionDate ?? "");
+      const merchant = String(body.merchant ?? "").trim();
+      const purpose = String(body.purpose ?? "").trim();
+      const evidenceMethod = oneOf(body.evidenceMethod, ["corporate-card", "tax-invoice", "cash-receipt", "other"], "증빙 수단", "corporate-card");
+      const companyCardId = evidenceMethod === "corporate-card" ? optionalInteger(body.companyCardId, "카드") : null;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(transactionDate) || !merchant || !purpose) {
+        return fail(null, "거래일·사용처·용도를 확인해주세요.", 400);
+      }
+      if (evidenceMethod === "corporate-card" && companyCardId === null) return fail(null, "사용한 법인카드를 선택해주세요.", 400);
+      const { error } = await client.from("erp_card_usages").insert({
+        company_card_id: companyCardId,
+        evidence_method: evidenceMethod,
+        transaction_date: transactionDate,
+        merchant,
+        amount: nonNegativeNumber(body.amount, "합계 금액"),
+        requested_amount: nonNegativeNumber(body.requestedAmount, "요청 금액"),
+        purpose,
+        user_employee_id: optionalInteger(body.userEmployeeId, "사용자"),
+        evidence_status: oneOf(body.evidenceStatus, ["missing", "submitted", "confirmed"], "증빙 상태", "missing"),
+        due_date: optionalDate(body.dueDate),
+        receipt_url: String(body.receiptUrl ?? "").trim(),
+        memo: String(body.memo ?? "").trim(),
+      });
+      if (error) throw new Error(error.message);
     } else {
       return fail(null, "지원하지 않는 요청입니다.", 400);
     }
@@ -412,6 +597,66 @@ export async function PATCH(request: Request) {
         updated_at: new Date().toISOString(),
       }).eq("id", id);
       if (error) throw new Error(error.message);
+    } else if (action === "card") {
+      const cardCompany = String(body.cardCompany ?? "").trim();
+      const cardAlias = String(body.cardAlias ?? "").trim();
+      const cardLast4 = String(body.cardLast4 ?? "").replace(/\D/g, "");
+      const expiryMonth = String(body.expiryMonth ?? "").trim();
+      if (!cardCompany || !cardAlias || !/^\d{4}$/.test(cardLast4)) return fail(null, "카드 필수 정보를 확인해주세요.", 400);
+      const { error } = await client.from("erp_company_cards").update({
+        card_company: cardCompany,
+        card_name: String(body.cardName ?? "").trim(),
+        card_alias: cardAlias,
+        card_last4: cardLast4,
+        holder_name: String(body.holderName ?? "").trim(),
+        credit_limit: nonNegativeNumber(body.creditLimit, "카드 한도"),
+        status: oneOf(body.status, ["active", "inactive"], "카드 상태", "active"),
+        issued_date: optionalDate(body.issuedDate),
+        expiry_month: expiryMonth || null,
+        responsible_employee_id: optionalInteger(body.responsibleEmployeeId),
+        memo: String(body.memo ?? "").trim(),
+        updated_at: new Date().toISOString(),
+      }).eq("id", id);
+      if (error) throw new Error(error.message);
+    } else if (action === "bankAccount") {
+      const bankName = String(body.bankName ?? "").trim();
+      const accountAlias = String(body.accountAlias ?? "").trim();
+      const accountNumber = String(body.accountNumber ?? "").trim();
+      if (!bankName || !accountAlias || !accountNumber) return fail(null, "통장 필수 정보를 확인해주세요.", 400);
+      const { error } = await client.from("erp_bank_accounts").update({
+        bank_name: bankName,
+        account_name: String(body.accountName ?? "").trim(),
+        account_alias: accountAlias,
+        account_number: accountNumber,
+        account_type: oneOf(body.accountType, ["checking", "savings", "loan", "other"], "통장 유형", "checking"),
+        balance: finiteNumber(body.balance, "현재 잔액"),
+        status: oneOf(body.status, ["active", "inactive"], "통장 상태", "active"),
+        opened_date: optionalDate(body.openedDate),
+        responsible_employee_id: optionalInteger(body.responsibleEmployeeId),
+        purpose: String(body.purpose ?? "").trim(),
+        memo: String(body.memo ?? "").trim(),
+        updated_at: new Date().toISOString(),
+      }).eq("id", id);
+      if (error) throw new Error(error.message);
+    } else if (action === "cardUsage") {
+      const evidenceMethod = oneOf(body.evidenceMethod, ["corporate-card", "tax-invoice", "cash-receipt", "other"], "증빙 수단", "corporate-card");
+      const companyCardId = evidenceMethod === "corporate-card" ? optionalInteger(body.companyCardId, "카드") : null;
+      const { error } = await client.from("erp_card_usages").update({
+        company_card_id: companyCardId,
+        evidence_method: evidenceMethod,
+        transaction_date: String(body.transactionDate ?? ""),
+        merchant: String(body.merchant ?? "").trim(),
+        amount: nonNegativeNumber(body.amount, "합계 금액"),
+        requested_amount: nonNegativeNumber(body.requestedAmount, "요청 금액"),
+        purpose: String(body.purpose ?? "").trim(),
+        user_employee_id: optionalInteger(body.userEmployeeId, "사용자"),
+        evidence_status: oneOf(body.evidenceStatus, ["missing", "submitted", "confirmed"], "증빙 상태", "missing"),
+        due_date: optionalDate(body.dueDate),
+        receipt_url: String(body.receiptUrl ?? "").trim(),
+        memo: String(body.memo ?? "").trim(),
+        updated_at: new Date().toISOString(),
+      }).eq("id", id);
+      if (error) throw new Error(error.message);
     } else {
       return fail(null, "지원하지 않는 수정 요청입니다.", 400);
     }
@@ -436,6 +681,12 @@ export async function DELETE(request: Request) {
           ? "erp_employment_contracts"
           : kind === "expense"
             ? "erp_expenses"
+            : kind === "card"
+              ? "erp_company_cards"
+              : kind === "bankAccount"
+                ? "erp_bank_accounts"
+                : kind === "cardUsage"
+                  ? "erp_card_usages"
             : "";
     if (!table) return fail(null, "삭제 대상을 확인해주세요.", 400);
     const { error } = await client.from(table).delete().eq("id", id);
