@@ -60,6 +60,39 @@ type ExpenseRow = {
   recurring_parent_id: number | null;
   recurring_month: string | null;
   source_card_usage_id: number | null;
+  employee_id: number | null;
+  memo: string;
+  created_at: string;
+};
+
+type PayrollRow = {
+  id: number;
+  payroll_month: string;
+  employee_id: number;
+  base_pay: number;
+  meal_allowance: number;
+  childcare_allowance: number;
+  fixed_overtime_pay: number;
+  holiday_pay: number;
+  research_allowance: number;
+  other_allowance: number;
+  total_pay: number;
+  pension_base: number;
+  health_base: number;
+  employment_base: number;
+  auto_insurance: boolean;
+  national_pension: number;
+  health_insurance: number;
+  long_term_care: number;
+  employment_insurance: number;
+  income_tax: number;
+  local_income_tax: number;
+  other_deduction: number;
+  total_deduction: number;
+  net_pay: number;
+  payment_status: string;
+  payment_date: string | null;
+  rate_year: number;
   memo: string;
   created_at: string;
 };
@@ -208,6 +241,69 @@ function recurringDay(value: unknown) {
   return day;
 }
 
+function roundDown10(value: number) {
+  return Math.floor(value / 10) * 10;
+}
+
+function payrollValues(body: Record<string, unknown>) {
+  const payrollMonth = String(body.payrollMonth ?? "");
+  const employeeId = Number(body.employeeId);
+  if (!/^\d{4}-\d{2}$/.test(payrollMonth) || !Number.isInteger(employeeId) || employeeId < 1) throw new Error("귀속 월과 직원을 확인해주세요.");
+  const basePay = nonNegativeNumber(body.basePay, "기본급");
+  const mealAllowance = nonNegativeNumber(body.mealAllowance, "식대");
+  const childcareAllowance = nonNegativeNumber(body.childcareAllowance, "보육수당");
+  const fixedOvertimePay = nonNegativeNumber(body.fixedOvertimePay, "고정연장근로수당");
+  const holidayPay = nonNegativeNumber(body.holidayPay, "월차지원금");
+  const researchAllowance = nonNegativeNumber(body.researchAllowance, "연구활동비");
+  const otherAllowance = nonNegativeNumber(body.otherAllowance, "기타 수당");
+  const totalPay = basePay + mealAllowance + childcareAllowance + fixedOvertimePay + holidayPay + researchAllowance + otherAllowance;
+  const pensionBase = nonNegativeNumber(body.pensionBase, "국민연금 기준소득월액");
+  const healthBase = nonNegativeNumber(body.healthBase, "건강보험 보수월액");
+  const employmentBase = nonNegativeNumber(body.employmentBase, "고용보험 보수월액");
+  const autoInsurance = body.autoInsurance !== false;
+  const pensionMin = payrollMonth >= "2026-07" ? 410_000 : 400_000;
+  const pensionMax = payrollMonth >= "2026-07" ? 6_590_000 : 6_370_000;
+  const pensionStandard = pensionBase > 0 ? Math.min(pensionMax, Math.max(pensionMin, pensionBase)) : 0;
+  const nationalPension = autoInsurance ? roundDown10(pensionStandard * 0.0475) : nonNegativeNumber(body.nationalPension, "국민연금");
+  const healthInsurance = autoInsurance ? roundDown10(healthBase * 0.03595) : nonNegativeNumber(body.healthInsurance, "건강보험");
+  const longTermCare = autoInsurance ? roundDown10(healthInsurance * (0.009448 / 0.0719)) : nonNegativeNumber(body.longTermCare, "장기요양보험");
+  const employmentInsurance = autoInsurance ? roundDown10(employmentBase * 0.009) : nonNegativeNumber(body.employmentInsurance, "고용보험");
+  const incomeTax = nonNegativeNumber(body.incomeTax, "소득세");
+  const localIncomeTax = nonNegativeNumber(body.localIncomeTax, "지방소득세");
+  const otherDeduction = nonNegativeNumber(body.otherDeduction, "기타 공제");
+  const totalDeduction = nationalPension + healthInsurance + longTermCare + employmentInsurance + incomeTax + localIncomeTax + otherDeduction;
+  if (totalDeduction > totalPay) throw new Error("공제 합계가 지급 합계를 초과할 수 없습니다.");
+  return {
+    payroll_month: payrollMonth,
+    employee_id: employeeId,
+    base_pay: basePay,
+    meal_allowance: mealAllowance,
+    childcare_allowance: childcareAllowance,
+    fixed_overtime_pay: fixedOvertimePay,
+    holiday_pay: holidayPay,
+    research_allowance: researchAllowance,
+    other_allowance: otherAllowance,
+    total_pay: totalPay,
+    pension_base: pensionBase,
+    health_base: healthBase,
+    employment_base: employmentBase,
+    auto_insurance: autoInsurance,
+    national_pension: nationalPension,
+    health_insurance: healthInsurance,
+    long_term_care: longTermCare,
+    employment_insurance: employmentInsurance,
+    income_tax: incomeTax,
+    local_income_tax: localIncomeTax,
+    other_deduction: otherDeduction,
+    total_deduction: totalDeduction,
+    net_pay: totalPay - totalDeduction,
+    payment_status: oneOf(body.paymentStatus, ["draft", "confirmed", "paid"], "지급 상태", "draft"),
+    payment_date: optionalDate(body.paymentDate),
+    rate_year: 2026,
+    memo: String(body.memo ?? "").trim(),
+  };
+}
+
 function seoulDate() {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: "Asia/Seoul",
@@ -250,6 +346,7 @@ async function ensureRecurringExpenses(client: SupabaseClient) {
       recurring_day: null,
       recurring_parent_id: source.id,
       recurring_month: currentMonth,
+      employee_id: source.employee_id,
       memo: source.memo,
     }, {
       onConflict: "recurring_parent_id,recurring_month",
@@ -308,7 +405,7 @@ async function syncCardUsageExpense(client: SupabaseClient, usageId: number) {
 
 async function readLedger(client: SupabaseClient) {
   await ensureRecurringExpenses(client);
-  const [employeeResult, leaveResult, contractResult, expenseResult, revenueResult, cardResult, accountResult, usageResult, settingResult] = await Promise.all([
+  const [employeeResult, leaveResult, contractResult, expenseResult, revenueResult, cardResult, accountResult, usageResult, settingResult, payrollResult] = await Promise.all([
     client.from("erp_employees").select("*").order("name"),
     client
       .from("erp_leave_entries")
@@ -322,10 +419,11 @@ async function readLedger(client: SupabaseClient) {
     client.from("erp_bank_accounts").select("*").order("bank_name").order("id"),
     client.from("erp_card_usages").select("*").order("transaction_date", { ascending: false }).order("id", { ascending: false }),
     client.from("erp_hr_settings").select("*").order("kind").order("sort_order").order("value"),
+    client.from("erp_payrolls").select("*").order("payroll_month", { ascending: false }).order("id", { ascending: false }),
   ]);
   if (employeeResult.error) throw new Error(employeeResult.error.message);
   if (leaveResult.error) throw new Error(leaveResult.error.message);
-  const schemaReady = !contractResult.error && !expenseResult.error && !revenueResult.error && !cardResult.error && !accountResult.error && !usageResult.error && !settingResult.error;
+  const schemaReady = !contractResult.error && !expenseResult.error && !revenueResult.error && !cardResult.error && !accountResult.error && !usageResult.error && !settingResult.error && !payrollResult.error;
 
   const employees = ((employeeResult.data ?? []) as EmployeeRow[]).map((row) => ({
     id: row.id,
@@ -384,6 +482,7 @@ async function readLedger(client: SupabaseClient) {
     recurringParentId: row.recurring_parent_id,
     recurringMonth: row.recurring_month,
     sourceCardUsageId: row.source_card_usage_id,
+    employeeId: row.employee_id,
     memo: row.memo,
     createdAt: row.created_at,
   }));
@@ -452,7 +551,38 @@ async function readLedger(client: SupabaseClient) {
     sortOrder: row.sort_order,
     createdAt: row.created_at,
   }));
-  return { employees, entries, contracts, expenses, revenues, cards, bankAccounts, cardUsages, hrSettings, schemaReady };
+  const payrolls = ((payrollResult.data ?? []) as PayrollRow[]).map((row) => ({
+    id: row.id,
+    payrollMonth: row.payroll_month,
+    employeeId: row.employee_id,
+    basePay: Number(row.base_pay),
+    mealAllowance: Number(row.meal_allowance),
+    childcareAllowance: Number(row.childcare_allowance),
+    fixedOvertimePay: Number(row.fixed_overtime_pay),
+    holidayPay: Number(row.holiday_pay),
+    researchAllowance: Number(row.research_allowance),
+    otherAllowance: Number(row.other_allowance),
+    totalPay: Number(row.total_pay),
+    pensionBase: Number(row.pension_base),
+    healthBase: Number(row.health_base),
+    employmentBase: Number(row.employment_base),
+    autoInsurance: row.auto_insurance,
+    nationalPension: Number(row.national_pension),
+    healthInsurance: Number(row.health_insurance),
+    longTermCare: Number(row.long_term_care),
+    employmentInsurance: Number(row.employment_insurance),
+    incomeTax: Number(row.income_tax),
+    localIncomeTax: Number(row.local_income_tax),
+    otherDeduction: Number(row.other_deduction),
+    totalDeduction: Number(row.total_deduction),
+    netPay: Number(row.net_pay),
+    paymentStatus: row.payment_status,
+    paymentDate: row.payment_date,
+    rateYear: row.rate_year,
+    memo: row.memo,
+    createdAt: row.created_at,
+  }));
+  return { employees, entries, contracts, expenses, revenues, cards, bankAccounts, cardUsages, hrSettings, payrolls, schemaReady };
 }
 
 export async function GET() {
@@ -557,8 +687,13 @@ export async function POST(request: Request) {
         recurring_day: repeatMonthly ? recurringDay(body.recurringDay) : null,
         recurring_parent_id: null,
         recurring_month: null,
+        employee_id: costType === "fixed" ? optionalInteger(body.employeeId, "직원") : null,
         memo: String(body.memo ?? "").trim(),
       });
+      if (error) throw new Error(error.message);
+    } else if (action === "payroll") {
+      const { error } = await client.from("erp_payrolls").insert(payrollValues(body));
+      if (error?.code === "23505") return fail(null, "해당 직원의 선택한 월 급여대장이 이미 있습니다.", 409);
       if (error) throw new Error(error.message);
     } else if (action === "revenue") {
       const revenueDate = String(body.revenueDate ?? "");
@@ -730,9 +865,17 @@ export async function PATCH(request: Request) {
         is_recurring: repeatMonthly,
         recurring_active: repeatMonthly,
         recurring_day: repeatMonthly ? recurringDay(body.recurringDay) : null,
+        employee_id: costType === "fixed" ? optionalInteger(body.employeeId, "직원") : null,
         memo: String(body.memo ?? "").trim(),
         updated_at: new Date().toISOString(),
       }).eq("id", id);
+      if (error) throw new Error(error.message);
+    } else if (action === "payroll") {
+      const { error } = await client.from("erp_payrolls").update({
+        ...payrollValues(body),
+        updated_at: new Date().toISOString(),
+      }).eq("id", id);
+      if (error?.code === "23505") return fail(null, "해당 직원의 선택한 월 급여대장이 이미 있습니다.", 409);
       if (error) throw new Error(error.message);
     } else if (action === "revenue") {
       const revenueDate = String(body.revenueDate ?? "");
@@ -851,8 +994,10 @@ export async function DELETE(request: Request) {
         ? "erp_employees"
         : kind === "contract"
           ? "erp_employment_contracts"
-          : kind === "expense"
-            ? "erp_expenses"
+            : kind === "expense"
+              ? "erp_expenses"
+            : kind === "payroll"
+              ? "erp_payrolls"
             : kind === "revenue"
               ? "erp_revenues"
             : kind === "card"

@@ -274,6 +274,31 @@ footer p { margin: 0; }
 .login-error { margin: 0; padding: 9px 11px; background: #fde9eb; color: var(--brand-deep); border-radius: 5px; font-size: 10px; }
 .login-card > small { display: block; margin-top: 24px; padding-top: 18px; border-top: 1px solid #eeeae8; color: #938c89; font-size: 8px; letter-spacing: .05em; }
 
+.payroll-stats { grid-template-columns: repeat(3, 1fr); }
+.payroll-form-section { display: grid; gap: 14px; padding: 16px; border: 1px solid var(--line); border-radius: 5px; background: #fff; }
+.payroll-form-section h3 { margin: 0; font-size: 14px; }
+.payroll-section-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.payroll-section-head p { margin: 5px 0 0; color: var(--muted); font-size: 10px; }
+.toggle-label { display: inline-flex; align-items: center; gap: 7px; color: var(--brand); font-size: 11px; font-weight: 800; white-space: nowrap; }
+.toggle-label input { width: 16px; height: 16px; accent-color: var(--brand); }
+.form-grid.four { grid-template-columns: repeat(4, 1fr); }
+.payroll-inline-total { display: flex; align-items: center; justify-content: flex-end; gap: 16px; padding-top: 12px; border-top: 1px solid var(--line); }
+.payroll-inline-total span { color: var(--muted); font-size: 11px; }
+.payroll-inline-total strong { color: var(--brand); font-size: 18px; }
+.insurance-preview { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.insurance-preview div { display: grid; gap: 5px; padding: 12px; border-radius: 5px; background: var(--canvas); }
+.insurance-preview span { color: var(--muted); font-size: 9px; }
+.insurance-preview strong { font-size: 13px; }
+.payroll-result { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.payroll-result div { display: flex; align-items: center; justify-content: space-between; padding: 14px; border-radius: 5px; background: var(--canvas); }
+.payroll-result span { color: var(--muted); font-size: 10px; }
+.payroll-result strong { color: var(--brand); font-size: 15px; }
+.payroll-rate-note { display: grid; gap: 5px; padding: 14px; border: 1px solid #ead9d7; border-radius: 5px; background: #fff8f6; }
+.payroll-rate-note strong { color: var(--brand); font-size: 10px; }
+.payroll-rate-note span { font-size: 10px; }
+.payroll-rate-note small { color: var(--muted); font-size: 9px; line-height: 1.6; }
+.payroll-table small { display: block; margin-top: 4px; color: var(--muted); font-size: 8px; font-weight: 500; }
+
 @keyframes fade-in { from { opacity: 0; } }
 @keyframes modal-in { from { transform: translateY(9px) scale(.985); opacity: 0; } }
 @keyframes toast-in { from { transform: translateY(8px); opacity: 0; } }
@@ -310,6 +335,7 @@ footer p { margin: 0; }
   .leave-summary { grid-template-columns: 1fr; }
   .financial-summary, .financial-summary.evidence-summary { grid-template-columns: 1fr 1fr; }
   .form-grid.three { grid-template-columns: 1fr 1fr; }
+  .form-grid.four, .insurance-preview { grid-template-columns: 1fr 1fr; }
 }
 
 @media (max-width: 520px) {
@@ -332,7 +358,8 @@ footer p { margin: 0; }
   .profile-tabs { padding: 0 16px; gap: 14px; }
   .detail-toolbar { padding: 16px 0; align-items: flex-start; flex-direction: column; }
   .info-row { padding: 12px 2px; grid-template-columns: 1fr; gap: 6px; }
-  .form-grid.two, .form-grid.three { grid-template-columns: 1fr; }
+  .form-grid.two, .form-grid.three, .form-grid.four, .insurance-preview, .payroll-result { grid-template-columns: 1fr; }
+  .payroll-section-head { flex-direction: column; gap: 10px; }
   .modal-backdrop { padding: 8px; align-items: end; }
   .modal { max-height: calc(100vh - 16px); border-radius: 5px; }
   .toast { left: 13px; right: 13px; bottom: 13px; justify-content: center; }
