@@ -257,10 +257,10 @@ function payrollValues(body: Record<string, unknown>) {
   const researchAllowance = nonNegativeNumber(body.researchAllowance, "연구활동비");
   const otherAllowance = nonNegativeNumber(body.otherAllowance, "기타 수당");
   const totalPay = basePay + mealAllowance + childcareAllowance + fixedOvertimePay + holidayPay + researchAllowance + otherAllowance;
-  const pensionBase = nonNegativeNumber(body.pensionBase, "국민연금 기준소득월액");
-  const healthBase = nonNegativeNumber(body.healthBase, "건강보험 보수월액");
-  const employmentBase = nonNegativeNumber(body.employmentBase, "고용보험 보수월액");
   const autoInsurance = body.autoInsurance !== false;
+  const pensionBase = autoInsurance ? totalPay : nonNegativeNumber(body.pensionBase ?? totalPay, "국민연금 기준소득월액");
+  const healthBase = autoInsurance ? totalPay : nonNegativeNumber(body.healthBase ?? totalPay, "건강보험 보수월액");
+  const employmentBase = autoInsurance ? totalPay : nonNegativeNumber(body.employmentBase ?? totalPay, "고용보험 보수월액");
   const pensionMin = payrollMonth >= "2026-07" ? 410_000 : 400_000;
   const pensionMax = payrollMonth >= "2026-07" ? 6_590_000 : 6_370_000;
   const pensionStandard = pensionBase > 0 ? Math.min(pensionMax, Math.max(pensionMin, pensionBase)) : 0;
@@ -270,8 +270,9 @@ function payrollValues(body: Record<string, unknown>) {
   const employmentInsurance = autoInsurance ? roundDown10(employmentBase * 0.009) : nonNegativeNumber(body.employmentInsurance, "고용보험");
   const incomeTax = nonNegativeNumber(body.incomeTax, "소득세");
   const localIncomeTax = nonNegativeNumber(body.localIncomeTax, "지방소득세");
-  const otherDeduction = nonNegativeNumber(body.otherDeduction, "기타 공제");
+  const otherDeduction = finiteNumber(body.otherDeduction, "정산·기타 공제");
   const totalDeduction = nationalPension + healthInsurance + longTermCare + employmentInsurance + incomeTax + localIncomeTax + otherDeduction;
+  if (totalDeduction < 0) throw new Error("공제 합계는 0원보다 작을 수 없습니다.");
   if (totalDeduction > totalPay) throw new Error("공제 합계가 지급 합계를 초과할 수 없습니다.");
   return {
     payroll_month: payrollMonth,
@@ -694,6 +695,32 @@ export async function POST(request: Request) {
     } else if (action === "payroll") {
       const { error } = await client.from("erp_payrolls").insert(payrollValues(body));
       if (error?.code === "23505") return fail(null, "해당 직원의 선택한 월 급여대장이 이미 있습니다.", 409);
+      if (error) throw new Error(error.message);
+    } else if (action === "payrollCopy") {
+      const sourceMonth = String(body.sourceMonth ?? "");
+      const targetMonth = String(body.targetMonth ?? "");
+      if (!/^\d{4}-\d{2}$/.test(sourceMonth) || !/^\d{4}-\d{2}$/.test(targetMonth) || sourceMonth === targetMonth) return fail(null, "불러올 월과 적용할 월을 확인해주세요.", 400);
+      const { data: sourceRows, error: sourceError } = await client.from("erp_payrolls").select("*").eq("payroll_month", sourceMonth);
+      if (sourceError) throw new Error(sourceError.message);
+      if (!sourceRows?.length) return fail(null, "불러올 전월 급여대장이 없습니다.", 404);
+      const copied = sourceRows.map((row) => payrollValues({
+        payrollMonth: targetMonth,
+        employeeId: row.employee_id,
+        basePay: row.base_pay,
+        mealAllowance: row.meal_allowance,
+        childcareAllowance: row.childcare_allowance,
+        fixedOvertimePay: row.fixed_overtime_pay,
+        holidayPay: row.holiday_pay,
+        researchAllowance: row.research_allowance,
+        otherAllowance: row.other_allowance,
+        autoInsurance: true,
+        incomeTax: row.income_tax,
+        localIncomeTax: row.local_income_tax,
+        otherDeduction: 0,
+        paymentStatus: "draft",
+        memo: `${sourceMonth} 급여대장에서 불러옴`,
+      }));
+      const { error } = await client.from("erp_payrolls").upsert(copied, { onConflict: "payroll_month,employee_id", ignoreDuplicates: true });
       if (error) throw new Error(error.message);
     } else if (action === "revenue") {
       const revenueDate = String(body.revenueDate ?? "");

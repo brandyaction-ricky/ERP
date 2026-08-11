@@ -35,7 +35,7 @@ create table if not exists public.erp_payrolls (
   employment_insurance numeric(14,0) not null default 0 check (employment_insurance >= 0),
   income_tax numeric(14,0) not null default 0 check (income_tax >= 0),
   local_income_tax numeric(14,0) not null default 0 check (local_income_tax >= 0),
-  other_deduction numeric(14,0) not null default 0 check (other_deduction >= 0),
+  other_deduction numeric(14,0) not null default 0,
   total_deduction numeric(14,0) not null default 0 check (total_deduction >= 0),
   net_pay numeric(14,0) not null default 0 check (net_pay >= 0),
   payment_status text not null default 'draft' check (payment_status in ('draft', 'confirmed', 'paid')),

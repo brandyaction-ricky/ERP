@@ -289,6 +289,14 @@ footer p { margin: 0; }
 .insurance-preview div { display: grid; gap: 5px; padding: 12px; border-radius: 5px; background: var(--canvas); }
 .insurance-preview span { color: var(--muted); font-size: 9px; }
 .insurance-preview strong { font-size: 13px; }
+.insurance-matrix { overflow: hidden; border: 1px solid var(--line); border-radius: 5px; }
+.insurance-matrix-head, .insurance-matrix-row { display: grid; grid-template-columns: 1.1fr repeat(3, 1fr); align-items: center; }
+.insurance-matrix-head { background: var(--canvas); color: var(--muted); font-size: 9px; font-weight: 800; }
+.insurance-matrix-head span, .insurance-matrix-row > * { padding: 10px 12px; border-right: 1px solid var(--line); }
+.insurance-matrix-head span:last-child, .insurance-matrix-row > *:last-child { border-right: 0; }
+.insurance-matrix-row { border-top: 1px solid var(--line); font-size: 10px; }
+.insurance-matrix-row b { color: var(--brand); }
+.insurance-caveat { margin: 0; color: var(--muted); font-size: 9px; line-height: 1.6; }
 .payroll-result { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .payroll-result div { display: flex; align-items: center; justify-content: space-between; padding: 14px; border-radius: 5px; background: var(--canvas); }
 .payroll-result span { color: var(--muted); font-size: 10px; }
@@ -360,6 +368,8 @@ footer p { margin: 0; }
   .info-row { padding: 12px 2px; grid-template-columns: 1fr; gap: 6px; }
   .form-grid.two, .form-grid.three, .form-grid.four, .insurance-preview, .payroll-result { grid-template-columns: 1fr; }
   .payroll-section-head { flex-direction: column; gap: 10px; }
+  .insurance-matrix { overflow-x: auto; }
+  .insurance-matrix-head, .insurance-matrix-row { min-width: 560px; }
   .modal-backdrop { padding: 8px; align-items: end; }
   .modal { max-height: calc(100vh - 16px); border-radius: 5px; }
   .toast { left: 13px; right: 13px; bottom: 13px; justify-content: center; }
