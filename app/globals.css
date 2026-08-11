@@ -277,6 +277,8 @@ footer p { margin: 0; }
 .payroll-stats { grid-template-columns: repeat(3, 1fr); }
 .payroll-form-section { display: grid; gap: 14px; padding: 16px; border: 1px solid var(--line); border-radius: 5px; background: #fff; }
 .payroll-form-section h3 { margin: 0; font-size: 14px; }
+.payroll-form-section .form-grid { align-items: start; }
+.payroll-field-help { margin: -5px 0 0; color: var(--muted); font-size: 9px; line-height: 1.5; }
 .payroll-section-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
 .payroll-section-head p { margin: 5px 0 0; color: var(--muted); font-size: 10px; }
 .toggle-label { display: inline-flex; align-items: center; gap: 7px; color: var(--brand); font-size: 11px; font-weight: 800; white-space: nowrap; }
